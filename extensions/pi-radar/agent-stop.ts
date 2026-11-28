@@ -16,6 +16,10 @@ export const agentStopLimitations = [
   "point_in_time_guards_not_atomic_filesystem_or_collection_transactions_or_peer_pid_attestation",
   "desired_state_write_may_precede_failure_cancellation_or_lost_reply_no_rollback_or_safe_retry",
   "native_callback_and_handler_return_not_completed_work_process_exit_lease_release_or_resource_absence",
+  "observation_independently_reads_matching_native_registration_listener_and_observed_owner_liveness",
+  "original_directory_and_leaf_identity_checks_point_in_time_not_atomic_or_later_freshness",
+  "unknown_observations_never_inferred_from_handler_success_or_capture_facts",
+  "observed_no_listener_and_no_live_owner_not_pid_incarnation_completed_work_lease_release_or_resource_absence",
   "resource_refresh_pending_requires_independent_recollection_not_verified_resource_outcomes",
   "no_automatic_replay_retry_silent_replan_start_restart_remove_or_sandbox_stop",
   "current_daemon_managed_handler_evidence_not_complete_or_durable_history",
@@ -30,9 +34,20 @@ const integer = (v: any): boolean => Number.isSafeInteger(v) && v >= 0;
 const time = (v: any): boolean => text(v, 35) && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?Z$/.test(v) && !v.startsWith("0000-") && Number.isFinite(Date.parse(v)) && new Date(v).toISOString().slice(0, 19) === v.slice(0, 19);
 const boundFields = ["plan_id", "expires_at", "revision", "scope", "record_id", "task_id", "agent_id", "feedback_workspace_id", "scope_workspace_id", "agent_workspace_id", "desired_before", "running_before"];
 
+function validObservation(v: any): boolean {
+  const o = v.observation;
+  if (!object(o, ["evidence", "registration", "runner"], ["observed_at"])) return false;
+  if (o.evidence === "unknown_not_observed") return o.registration === "unknown" && o.runner === "unknown" && o.observed_at === undefined;
+  if (v.mode !== "apply" || v.problem === "cancelled_or_timed_out" || o.evidence !== "bounded_native_stop_reads" || !["unknown", "matching_stopped_definition", "original_preserved"].includes(o.registration) || !["unknown", "matching_listener_present", "no_listener_and_no_live_observed_owner"].includes(o.runner) || !time(o.observed_at) || /\.\d*0Z$/.test(o.observed_at)) return false;
+  // Preserve nanosecond ordering even though JavaScript Date parses only ms.
+  const nanos = (s: string): bigint => BigInt(Date.parse(s.slice(0, 19) + "Z")) * 1_000_000n + BigInt((s.includes(".") ? s.slice(20, -1) : "").padEnd(9, "0"));
+  const at = nanos(o.observed_at), expires = nanos(v.expires_at);
+  return at >= expires - 30_000_000_000n && at <= expires && at < (BigInt(Date.now()) + 1n) * 1_000_000n;
+}
+
 export function validateAgentStop(data: any, params: Params, accepted?: Accepted): void {
   const fail = (): never => { throw failure(); }, scope = params.scope === undefined ? "origin" : params.scope, mode = params.action === undefined ? "preview" : params.action;
-  if (!object(data, ["diagnostics_schema", "section", "scope", "available", "feedback_workspace_id", "evidence"], ["origin_workspace_id", "reason", "agent_stop"]) || data.diagnostics_schema !== 42 || data.section !== "agent_stop" || data.scope !== scope || !text(data.feedback_workspace_id) || (data.origin_workspace_id !== undefined && (scope !== "origin" || !text(data.origin_workspace_id)))) fail();
+  if (!object(data, ["diagnostics_schema", "section", "scope", "available", "feedback_workspace_id", "evidence"], ["origin_workspace_id", "reason", "agent_stop"]) || data.diagnostics_schema !== 43 || data.section !== "agent_stop" || data.scope !== scope || !text(data.feedback_workspace_id) || (data.origin_workspace_id !== undefined && (scope !== "origin" || !text(data.origin_workspace_id)))) fail();
   if (data.available === false) {
     if (data.evidence !== "unavailable" || data.agent_stop !== undefined || !["origin_not_registered", "daemon_unavailable", "agent_stop_outcome_unknown_do_not_replay"].includes(data.reason) || (data.reason === "origin_not_registered" ? scope !== "origin" || data.origin_workspace_id !== undefined : scope === "origin" && !text(data.origin_workspace_id))) fail();
     if (mode === "apply") {
@@ -43,10 +58,11 @@ export function validateAgentStop(data: any, params: Params, accepted?: Accepted
     return;
   }
   const v = data.agent_stop;
-  if (data.available !== true || data.reason !== undefined || data.evidence !== "native_exact_agent_stop_plan_not_consent" || !object(v, ["diagnostics_schema", "operation", "mode", "scope", "record_id", "task_id", "agent_id", "feedback_workspace_id", "agent_workspace_id", "evidence", "plan_id", "expires_at", "revision", "desired_before", "running_before", "dispatch_evidence", "problem", "outcome", "resource_refresh_pending", "limitations"], ["scope_workspace_id", "operation_id"]) || v.diagnostics_schema !== 42 || v.operation !== "agent_stop" || v.mode !== mode || v.scope !== scope || !text(v.record_id) || !integer(v.task_id) || v.task_id < 1 || (params.parent_id !== v.record_id && params.parent_id !== String(v.task_id)) || v.agent_id !== params.agent_id || typeof v.agent_id !== "string" || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(v.agent_id) || v.feedback_workspace_id !== data.feedback_workspace_id || !text(v.agent_workspace_id) || v.evidence !== data.evidence || typeof v.plan_id !== "string" || !/^[a-f0-9]{64}$/.test(v.plan_id) || !time(v.expires_at) || !integer(v.revision) || typeof v.desired_before !== "boolean" || typeof v.running_before !== "boolean" || JSON.stringify(v.limitations) !== JSON.stringify(agentStopLimitations) || Buffer.byteLength(JSON.stringify(v), "utf8") > 32 * 1024) fail();
+  if (data.available !== true || data.reason !== undefined || data.evidence !== "native_exact_agent_stop_plan_not_consent" || !object(v, ["diagnostics_schema", "operation", "mode", "scope", "record_id", "task_id", "agent_id", "feedback_workspace_id", "agent_workspace_id", "evidence", "plan_id", "expires_at", "revision", "desired_before", "running_before", "dispatch_evidence", "problem", "outcome", "resource_refresh_pending", "observation", "limitations"], ["scope_workspace_id", "operation_id"]) || v.diagnostics_schema !== 43 || v.operation !== "agent_stop" || v.mode !== mode || v.scope !== scope || !text(v.record_id) || !integer(v.task_id) || v.task_id < 1 || (params.parent_id !== v.record_id && params.parent_id !== String(v.task_id)) || v.agent_id !== params.agent_id || typeof v.agent_id !== "string" || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(v.agent_id) || v.feedback_workspace_id !== data.feedback_workspace_id || !text(v.agent_workspace_id) || v.evidence !== data.evidence || typeof v.plan_id !== "string" || !/^[a-f0-9]{64}$/.test(v.plan_id) || !time(v.expires_at) || !integer(v.revision) || typeof v.desired_before !== "boolean" || typeof v.running_before !== "boolean" || JSON.stringify(v.limitations) !== JSON.stringify(agentStopLimitations) || Buffer.byteLength(JSON.stringify(v), "utf8") > 32 * 1024) fail();
   if (scope === "installation" ? v.scope_workspace_id !== undefined : !text(v.scope_workspace_id) || v.scope_workspace_id !== v.agent_workspace_id) fail();
   if (scope === "feedback" && v.scope_workspace_id !== data.feedback_workspace_id) fail();
   if (scope === "origin" ? data.origin_workspace_id !== v.scope_workspace_id : data.origin_workspace_id !== undefined) fail();
+  if (!validObservation(v)) fail();
   if (mode === "preview") {
     if (params.plan_id !== undefined || v.outcome !== "not_attempted" || v.problem !== "none" || v.dispatch_evidence !== "not_dispatched" || v.operation_id !== undefined || v.resource_refresh_pending !== false || Date.parse(v.expires_at) <= Date.now() || Date.parse(v.expires_at) > Date.now() + 35_000) fail();
   } else {

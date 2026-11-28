@@ -16,7 +16,7 @@ import (
 func TestFeedbackAgentStopExactTaskAgentScopeAndFiniteEvidence(t *testing.T) {
 	for _, scope := range []string{"origin", "feedback", "installation"} {
 		for _, mode := range []string{"preview", "apply"} {
-			for _, kind := range []string{"valid", "old_schema", "task", "agent", "feedback", "anchor", "plan", "pending", "private", "duplicate", "lost"} {
+			for _, kind := range []string{"valid", "observed", "observed_error", "private_observation", "missing_observation", "old_schema", "task", "agent", "feedback", "anchor", "plan", "pending", "private", "duplicate", "lost"} {
 				t.Run(scope+"/"+mode+"/"+kind, func(t *testing.T) {
 					_, anchor, origin := feedbackManualFixture(t)
 					dir, err := os.MkdirTemp("", "asp-")
@@ -61,11 +61,20 @@ func TestFeedbackAgentStopExactTaskAgentScopeAndFiniteEvidence(t *testing.T) {
 							done <- nil
 							return
 						}
-						v := protocol.DiagnosticAgentStop{Schema: protocol.DiagnosticsVersion, Operation: "agent_stop", Mode: mode, Scope: scope, RecordID: "record", TaskID: 7, AgentID: "worker", FeedbackWorkspaceID: workspacegroup.ID(anchor), ScopeWorkspaceID: scopeID, AgentWorkspaceID: target, Evidence: "native_exact_agent_stop_plan_not_consent", PlanID: strings.Repeat("c", 64), ExpiresAt: time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339Nano), Revision: 1, DesiredBefore: true, RunningBefore: false, DispatchEvidence: "not_dispatched", Problem: "none", Outcome: "not_attempted", Limitations: protocol.DiagnosticAgentStopLimitations()}
+						v := protocol.DiagnosticAgentStop{Schema: protocol.DiagnosticsVersion, Operation: "agent_stop", Mode: mode, Scope: scope, RecordID: "record", TaskID: 7, AgentID: "worker", FeedbackWorkspaceID: workspacegroup.ID(anchor), ScopeWorkspaceID: scopeID, AgentWorkspaceID: target, Evidence: "native_exact_agent_stop_plan_not_consent", PlanID: strings.Repeat("c", 64), ExpiresAt: time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339Nano), Revision: 1, DesiredBefore: true, RunningBefore: false, DispatchEvidence: "not_dispatched", Problem: "none", Outcome: "not_attempted", Observation: protocol.UnknownDiagnosticAgentStopObservation(), Limitations: protocol.DiagnosticAgentStopLimitations()}
 						if mode == "apply" {
 							v.Outcome, v.DispatchEvidence, v.OperationID, v.ResourceRefreshPending = "native_handler_returned_unverified", "native_stop_callback_entered_not_process_outcome", "operation", true
 						}
+						if mode == "apply" && (kind == "observed" || kind == "observed_error") {
+							v.Observation = protocol.DiagnosticAgentStopObservation{Evidence: "bounded_native_stop_reads", Registration: "matching_stopped_definition", Runner: "matching_listener_present", ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+							if kind == "observed_error" {
+								v.Problem, v.Outcome = "native_error", "unverified_may_be_partial"
+							}
+						}
 						switch kind {
+						case "private_observation":
+							v.Observation.Runner = "PRIVATE runner"
+
 						case "old_schema":
 							v.Schema--
 						case "task":
@@ -82,6 +91,12 @@ func TestFeedbackAgentStopExactTaskAgentScopeAndFiniteEvidence(t *testing.T) {
 							v.ResourceRefreshPending = !v.ResourceRefreshPending
 						}
 						raw, _ := json.Marshal(protocol.Response{OK: true, DiagnosticAgentStop: &v})
+						if kind == "missing_observation" {
+							var frame map[string]any
+							_ = json.Unmarshal(raw, &frame)
+							delete(frame["diagnostic_agent_stop"].(map[string]any), "observation")
+							raw, _ = json.Marshal(frame)
+						}
 						if kind == "private" {
 							raw = []byte(strings.TrimSuffix(string(raw), "}") + `,"private":"PRIVATE"}`)
 						}
@@ -107,9 +122,17 @@ func TestFeedbackAgentStopExactTaskAgentScopeAndFiniteEvidence(t *testing.T) {
 					if actual.Method != "diagnostics-maintenance" || actual.Maintenance == nil || *actual.Maintenance != want || actual != (protocol.Request{Method: "diagnostics-maintenance", Maintenance: actual.Maintenance}) {
 						t.Fatal("wrong exact registered transport", actual)
 					}
-					if kind == "valid" {
+					if kind == "valid" || kind == "observed" || kind == "observed_error" {
 						if err != nil || result["available"] != true || result["agent_stop"] == nil {
 							t.Fatal(result, err)
+						}
+						view := result["agent_stop"].(*protocol.DiagnosticAgentStop)
+						if mode == "apply" && (kind == "observed" || kind == "observed_error") {
+							if view.Observation.Runner != "matching_listener_present" || view.Observation.Registration != "matching_stopped_definition" || (view.Problem == "native_error") != (kind == "observed_error") {
+								t.Fatal("CLI conflated handler status with independent observations", view)
+							}
+						} else if view.Observation != protocol.UnknownDiagnosticAgentStopObservation() {
+							t.Fatal("CLI fabricated observations", view)
 						}
 					} else if err == nil && (result["available"] != false || result["reason"] != "agent_stop_outcome_unknown_do_not_replay") {
 						t.Fatal("unsafe response accepted", result)

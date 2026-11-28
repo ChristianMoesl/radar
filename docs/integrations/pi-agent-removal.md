@@ -1,6 +1,6 @@
 # Exact stopped-registration removal: daemon/client contract
 
-Diagnostics **schema 42** enables section `agent_remove` through the existing
+Diagnostics **schema 43** enables section `agent_remove` through the existing
 finite daemon/client transport and single native removal executor:
 `agent_remove_daemon_client_transport: true`, `agent_remove_previews: true`,
 `agent_remove_apply: true`, broad `runtime_controls: false`.
@@ -58,7 +58,7 @@ Complete response validation is canonical, bounded to 32 KiB for the view and
 36 KiB for the envelope, with every required/null member checked and the reply
 bound to the original exact request. Older peers fail closed, without aliases.
 
-Schema 42 also requires a separate finite `observation` object; handler status is
+Schema 43 also requires a separate finite `observation` object; handler status is
 unchanged. Preview has `evidence: unknown_not_observed`, `registration: unknown`,
 `schedules: unknown`, and no `observed_at`. Apply may retain that unknown evidence
 even after handler success. Otherwise `evidence: bounded_native_checkpoint_reads`
@@ -130,6 +130,6 @@ refusal, no cleanup target counts/phases are synthesized, and history is neither
 complete nor durable. Schema-matched Pi validates this evidence before model output; neither evidence
 nor handler success authorizes another removal or cleanup.
 
-CLI, daemon and loaded Pi must match schema 42; separately install/reload Pi after
+CLI, daemon and loaded Pi must match schema 43; separately install/reload Pi after
 updating sources (`make install` alone does not reload it). Persisted formats are
 unchanged: not a registry/data migration, no reset or compatibility shim.

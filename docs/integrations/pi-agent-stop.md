@@ -4,7 +4,7 @@
 
 ## Exact CLI/Pi interruption consent
 
-Diagnostics schema 42 exposes `radar_diagnostics` section `agent_stop` with exact
+Diagnostics schema 43 exposes `radar_diagnostics` section `agent_stop` with exact
 retained task `parent_id` and registered `agent_id`. Overview advertises
 `agent_stop_daemon_client_transport: true`, `agent_stop_previews: true` and
 `agent_stop_apply: true`; broad `runtime_controls` remains false. Start, restart,
@@ -71,7 +71,8 @@ already accepted desired-state/shutdown effects are not rolled back.
 
 The complete allowlisted response is at most 32 KiB. It contains public task,
 agent and workspace IDs, freshness, `desired_before`/`running_before` capture
-facts, fixed evidence/limitations, and bounded native handler outcomes. No
+facts, fixed evidence/limitations, independent finite observations and bounded
+native handler outcomes. No
 paths, PIDs, runtime names, checkpoint/token contents or provider errors escape.
 The client validates the full shape, required/non-null fields, scope, exact
 task/agent, mode, schema and apply plan; private sibling fields also refuse.
@@ -96,3 +97,30 @@ claim. Handler return does not prove process exit, completed work, checkpoint
 success, released leases or resource absence. The stopped registration still
 pins its workspace. Data, registration, workspace and sandbox remain; start,
 restart, remove and sandbox stop are not part of this operation.
+
+## Independent bounded native stop observations
+
+Schema 43 requires `observation` independently of handler status. Preview uses
+`unknown_not_observed`, `registration: unknown`, `runner: unknown`, without a
+timestamp. Apply may expose `bounded_native_stop_reads` with canonical UTC
+`observed_at` bounded to this execution and the original native expiry:
+
+- `registration`: `unknown`, `matching_stopped_definition` (captured native
+  definition with desired false), or `original_preserved` (original raw file).
+- `runner`: `unknown`, `matching_listener_present`, or
+  `no_listener_and_no_live_observed_owner` (no listener, no live recorded owner,
+  and no live captured snapshot PID when one was captured).
+
+Native reads bracket the probe with original directory identities and stable
+registration/owner/socket evidence. Unsafe, changed, missing, cancelled or expired
+evidence remains unknown; handler success never fills it in. A failed handler
+may still have observed stopped intent, and a returned handler may still have a
+matching listener. These are point-in-time observations, not attribution, PID
+incarnation, completed work, checkpoint success, lease release, cleanup eligibility,
+workspace/sandbox absence, rollback or safe retry. Resource refresh remains pending.
+Inspection is memory-only and cannot restore consumed admission.
+
+Clients and Pi reject missing/null/private nested fields, duplicate or folded keys,
+noncanonical/stale/future timestamps, observations in preview or cancelled results,
+and old schemas without fallback. Update CLI, daemon and installed Pi together;
+this wire revision changes no persisted data, native executor or consent policy.

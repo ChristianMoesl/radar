@@ -125,6 +125,9 @@ func TestDiagnosticAgentStopTransportNativeClientExactPlanManagedEvidence(t *tes
 			if err != nil || !response.OK || v == nil || !protocol.ValidDiagnosticAgentStop(*v, q) || s.store.Revision() != before || *pending || !stopDesired(t, file) {
 				t.Fatal("finite native preview failed", response, err)
 			}
+			if v.Observation != protocol.UnknownDiagnosticAgentStopObservation() {
+				t.Fatal("preview fabricated postconditions", v)
+			}
 			raw, _ := json.Marshal(response)
 			for _, secret := range []string{"PRIVATE", q.Workspace, q.FeedbackWorkspace} {
 				if secret != "" && strings.Contains(string(raw), secret) {
@@ -136,6 +139,9 @@ func TestDiagnosticAgentStopTransportNativeClientExactPlanManagedEvidence(t *tes
 			v = response.DiagnosticAgentStop
 			if err != nil || !response.OK || v == nil || v.OperationID == "" || !protocol.ValidDiagnosticAgentStop(*v, q) || v.Outcome != "native_handler_returned_unverified" || !v.DesiredBefore || v.RunningBefore || !v.ResourceRefreshPending || !*pending || stopDesired(t, file) {
 				t.Fatal("finite native apply failed/overclaimed", response, err)
+			}
+			if v.Observation.Evidence != "bounded_native_stop_reads" || v.Observation.Registration != "matching_stopped_definition" || v.Observation.Runner != "no_listener_and_no_live_observed_owner" || v.Observation.ObservedAt == "" {
+				t.Fatal("native independently read observations lost across daemon/socket/client", v)
 			}
 			_, _, ops, _ := s.store.OperationInspectionSnapshot()
 			if len(ops) != 1 || ops[0].ID != v.OperationID || ops[0].Kind != "agent-stop" || ops[0].Status != "succeeded" || ops[0].WorkspaceID != target {

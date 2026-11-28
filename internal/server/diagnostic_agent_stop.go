@@ -30,6 +30,7 @@ type diagnosticAgentStopView struct {
 	revision                                                           int64
 	desired, running, dispatched                                       bool
 	mode, problem, outcome                                             string
+	observation                                                        protocol.DiagnosticAgentStopObservation
 }
 type diagnosticAgentStopPlan struct {
 	request                     protocol.DiagnosticMaintenanceRequest
@@ -211,13 +212,15 @@ func (s *Server) applyDiagnosticAgentStop(ctx context.Context, q protocol.Diagno
 	if p == nil || !validDiagnosticAgentStopRequest(q, id) || q.Mode != "apply" || p.request != cleanupBindingRequest(q) || p.view.agent != id || ctx.Err() != nil || s.markResourcesPending == nil || s.resourceSnapshot == nil || !s.diagnosticCleanupInputsLive(ctx, retained.expires, retained.revision) || (s.refreshPlan != nil && s.refreshPlan.view.Status == "running") {
 		return fail()
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithDeadline(ctx, p.expires)
 	defer cancel()
 	p.active.Store(true)
 	defer p.active.Store(false)
+	started := time.Now()
 	err := p.native.Execute(ctx)
 	view := p.view
 	view.mode, view.dispatched, view.operationID = "apply", p.dispatched.Load(), p.operation
+	view.observation = protocol.UnknownDiagnosticAgentStopObservation()
 	if !view.dispatched {
 		return fail()
 	}
@@ -230,6 +233,13 @@ func (s *Server) applyDiagnosticAgentStop(ctx context.Context, q protocol.Diagno
 		if ctx.Err() != nil {
 			view.problem = "cancelled_or_timed_out"
 		}
+	}
+	if stopObservationInputsLive(ctx, p.expires) {
+		view.observation = projectAgentStopObservation(p.native.Observation(), started, p.expires)
+	}
+	if !stopObservationInputsLive(ctx, p.expires) {
+		view.problem, view.outcome = "cancelled_or_timed_out", "unverified_may_be_partial"
+		view.observation = protocol.UnknownDiagnosticAgentStopObservation()
 	}
 	status := "succeeded"
 	if view.problem != "none" {
@@ -253,6 +263,10 @@ func (s *Server) diagnosticAgentStop(ctx context.Context, q protocol.DiagnosticM
 		return protocol.DiagnosticAgentStop{}, diagnosticAgentStopUnavailable()
 	}
 	view := protocol.DiagnosticAgentStop{Schema: protocol.DiagnosticsVersion, Operation: "agent_stop", Mode: private.mode, Scope: q.Scope, RecordID: private.record, TaskID: private.taskID, AgentID: private.agent, FeedbackWorkspaceID: private.feedback, AgentWorkspaceID: private.workspace, Evidence: "native_exact_agent_stop_plan_not_consent", PlanID: private.planID, ExpiresAt: private.expiresAt, Revision: private.revision, DesiredBefore: private.desired, RunningBefore: private.running, DispatchEvidence: "not_dispatched", Problem: private.problem, Outcome: "not_attempted", OperationID: private.operationID, ResourceRefreshPending: private.dispatched, Limitations: protocol.DiagnosticAgentStopLimitations()}
+	view.Observation = protocol.UnknownDiagnosticAgentStopObservation()
+	if private.dispatched {
+		view.Observation = private.observation
+	}
 	if q.Scope != "installation" {
 		view.ScopeWorkspaceID = private.workspace
 	}

@@ -10,33 +10,63 @@ import (
 	"time"
 )
 
-// DiagnosticAgentStop is a finite native-handler disclosure, never a private
-// registration, executable plan, user-consent record or process-outcome claim.
+// DiagnosticAgentStop separates finite native observations from handler status.
+// Never a private registration, executable plan, consent or work/resource proof.
 // Trusted adapters must separately obtain fresh exact-target interruption consent.
 // Captured running/desired facts are explicitly before execution.
 type DiagnosticAgentStop struct {
-	Schema                 int      `json:"diagnostics_schema"`
-	Operation              string   `json:"operation"`
-	Mode                   string   `json:"mode"`
-	Scope                  string   `json:"scope"`
-	RecordID               string   `json:"record_id"`
-	TaskID                 int      `json:"task_id"`
-	AgentID                string   `json:"agent_id"`
-	FeedbackWorkspaceID    string   `json:"feedback_workspace_id"`
-	ScopeWorkspaceID       string   `json:"scope_workspace_id,omitempty"`
-	AgentWorkspaceID       string   `json:"agent_workspace_id"`
-	Evidence               string   `json:"evidence"`
-	PlanID                 string   `json:"plan_id"`
-	ExpiresAt              string   `json:"expires_at"`
-	Revision               int64    `json:"revision"`
-	DesiredBefore          bool     `json:"desired_before"`
-	RunningBefore          bool     `json:"running_before"`
-	DispatchEvidence       string   `json:"dispatch_evidence"`
-	Problem                string   `json:"problem"`
-	Outcome                string   `json:"outcome"`
-	OperationID            string   `json:"operation_id,omitempty"`
-	ResourceRefreshPending bool     `json:"resource_refresh_pending"`
-	Limitations            []string `json:"limitations"`
+	Schema                 int                            `json:"diagnostics_schema"`
+	Operation              string                         `json:"operation"`
+	Mode                   string                         `json:"mode"`
+	Scope                  string                         `json:"scope"`
+	RecordID               string                         `json:"record_id"`
+	TaskID                 int                            `json:"task_id"`
+	AgentID                string                         `json:"agent_id"`
+	FeedbackWorkspaceID    string                         `json:"feedback_workspace_id"`
+	ScopeWorkspaceID       string                         `json:"scope_workspace_id,omitempty"`
+	AgentWorkspaceID       string                         `json:"agent_workspace_id"`
+	Evidence               string                         `json:"evidence"`
+	PlanID                 string                         `json:"plan_id"`
+	ExpiresAt              string                         `json:"expires_at"`
+	Revision               int64                          `json:"revision"`
+	DesiredBefore          bool                           `json:"desired_before"`
+	RunningBefore          bool                           `json:"running_before"`
+	DispatchEvidence       string                         `json:"dispatch_evidence"`
+	Problem                string                         `json:"problem"`
+	Outcome                string                         `json:"outcome"`
+	OperationID            string                         `json:"operation_id,omitempty"`
+	ResourceRefreshPending bool                           `json:"resource_refresh_pending"`
+	Observation            DiagnosticAgentStopObservation `json:"observation"`
+	Limitations            []string                       `json:"limitations"`
+}
+
+// Independently read point-in-time evidence, never inferred from handler return.
+// No private paths, PIDs, hashes, checkpoints or provider strings cross the wire.
+type DiagnosticAgentStopObservation struct {
+	Evidence     string `json:"evidence"`
+	Registration string `json:"registration"`
+	Runner       string `json:"runner"`
+	ObservedAt   string `json:"observed_at,omitempty"`
+}
+
+func UnknownDiagnosticAgentStopObservation() DiagnosticAgentStopObservation {
+	return DiagnosticAgentStopObservation{Evidence: "unknown_not_observed", Registration: "unknown", Runner: "unknown"}
+}
+
+func validDiagnosticAgentStopObservation(v DiagnosticAgentStop) bool {
+	o := v.Observation
+	if o.Evidence == "unknown_not_observed" {
+		return o == UnknownDiagnosticAgentStopObservation()
+	}
+	if v.Mode != "apply" || v.Problem == "cancelled_or_timed_out" || o.Evidence != "bounded_native_stop_reads" ||
+		(o.Registration != "unknown" && o.Registration != "matching_stopped_definition" && o.Registration != "original_preserved") ||
+		(o.Runner != "unknown" && o.Runner != "matching_listener_present" && o.Runner != "no_listener_and_no_live_observed_owner") {
+		return false
+	}
+	at, err := time.Parse(time.RFC3339Nano, o.ObservedAt)
+	expires, expiryErr := time.Parse(time.RFC3339Nano, v.ExpiresAt)
+	return err == nil && expiryErr == nil && at.Year() >= 1 && len(o.ObservedAt) <= 35 && at.UTC().Format(time.RFC3339Nano) == o.ObservedAt &&
+		!at.Before(expires.Add(-30*time.Second)) && !at.After(expires) && !at.After(time.Now())
 }
 
 func DiagnosticAgentStopLimitations() []string {
@@ -53,6 +83,10 @@ func DiagnosticAgentStopLimitations() []string {
 		"point_in_time_guards_not_atomic_filesystem_or_collection_transactions_or_peer_pid_attestation",
 		"desired_state_write_may_precede_failure_cancellation_or_lost_reply_no_rollback_or_safe_retry",
 		"native_callback_and_handler_return_not_completed_work_process_exit_lease_release_or_resource_absence",
+		"observation_independently_reads_matching_native_registration_listener_and_observed_owner_liveness",
+		"original_directory_and_leaf_identity_checks_point_in_time_not_atomic_or_later_freshness",
+		"unknown_observations_never_inferred_from_handler_success_or_capture_facts",
+		"observed_no_listener_and_no_live_owner_not_pid_incarnation_completed_work_lease_release_or_resource_absence",
 		"resource_refresh_pending_requires_independent_recollection_not_verified_resource_outcomes",
 		"no_automatic_replay_retry_silent_replan_start_restart_remove_or_sandbox_stop",
 		"current_daemon_managed_handler_evidence_not_complete_or_durable_history",
@@ -77,7 +111,7 @@ func ValidDiagnosticAgentStop(v DiagnosticAgentStop, q DiagnosticMaintenanceRequ
 		return false
 	}
 	raw, err := json.Marshal(v)
-	if err != nil || len(raw) > 32*1024 {
+	if err != nil || len(raw) > 32*1024 || !validDiagnosticAgentStopObservation(v) {
 		return false
 	}
 	if q.Mode == "preview" {

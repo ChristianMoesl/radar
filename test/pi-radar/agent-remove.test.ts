@@ -7,7 +7,7 @@ import { agentRemoveLimitations } from "../../extensions/pi-radar/agent-remove.t
 
 function fixture(scope = "origin", desired = 3, running = 1): any {
  const target = scope === "feedback" ? "feedback" : "registered";
- return {diagnostics_schema:42,section:"agent_remove",scope,available:true,feedback_workspace_id:"feedback",...(scope==="origin"?{origin_workspace_id:target}:{}),evidence:"native_exact_agent_removal_plan_not_consent",agent_remove:{diagnostics_schema:42,operation:"agent_remove",mode:"preview",scope,record_id:"record",task_id:7,agent_id:"worker",feedback_workspace_id:"feedback",...(scope!=="installation"?{scope_workspace_id:target}:{}),agent_workspace_id:target,evidence:"native_exact_agent_removal_plan_not_consent",plan_id:"c".repeat(64),expires_at:new Date(Date.now()+30_000).toISOString(),revision:3,schedules_before:desired,enabled_schedules_before:running,dispatch_evidence:"not_dispatched",problem:"none",outcome:"not_attempted",resource_refresh_pending:false,observation:{evidence:"unknown_not_observed",registration:"unknown",schedules:"unknown"},limitations:[...agentRemoveLimitations]}};
+ return {diagnostics_schema:43,section:"agent_remove",scope,available:true,feedback_workspace_id:"feedback",...(scope==="origin"?{origin_workspace_id:target}:{}),evidence:"native_exact_agent_removal_plan_not_consent",agent_remove:{diagnostics_schema:43,operation:"agent_remove",mode:"preview",scope,record_id:"record",task_id:7,agent_id:"worker",feedback_workspace_id:"feedback",...(scope!=="installation"?{scope_workspace_id:target}:{}),agent_workspace_id:target,evidence:"native_exact_agent_removal_plan_not_consent",plan_id:"c".repeat(64),expires_at:new Date(Date.now()+30_000).toISOString(),revision:3,schedules_before:desired,enabled_schedules_before:running,dispatch_evidence:"not_dispatched",problem:"none",outcome:"not_attempted",resource_refresh_pending:false,observation:{evidence:"unknown_not_observed",registration:"unknown",schedules:"unknown"},limitations:[...agentRemoveLimitations]}};
 }
 function harness(data: any = fixture()) {
  const tools = new Map<string, any>(["mcp__linear__get_project","mcp__linear__save_issue"].map(name=>[name,{name,exposure:"direct"}]));let active=[...tools.keys()];
@@ -75,7 +75,7 @@ for(const stage of ["preview","apply"])for(const drift of ["workspace","session"
  const h=harness(),abort=new AbortController();if(stage==="apply")await h.preview();const original=h.pi.exec;h.pi.exec=async(...args:any[])=>{const result=await original(...args);if(drift==="workspace")h.ctx.cwd="/work/other";if(drift==="session")h.ctx.session="other";if(drift==="context")h.session.update({feedback:true},h.ctx);if(drift==="abort")abort.abort();if(drift==="ui")h.ctx.hasUI=false;if(drift==="mcp")h.tools.clear();return result;};h.approvals.push(true);await assert.rejects(h.read(stage==="apply"?{action:"apply",plan_id:h.data.agent_remove.plan_id}:{},abort.signal));assert.equal(h.calls.length,stage==="apply"?2:1);
 });
 for(const scope of ["origin","feedback","installation"])for(const reason of ["origin_not_registered","daemon_unavailable","agent_remove_outcome_unknown_do_not_replay"])test(`removal unavailable evidence does not fall back ${scope}/${reason}`,async()=>{
- const data={diagnostics_schema:42,section:"agent_remove",scope,available:false,feedback_workspace_id:"feedback",...(scope==="origin"&&reason!=="origin_not_registered"?{origin_workspace_id:"registered"}:{}),evidence:"unavailable",reason};const h=harness(data);
+ const data={diagnostics_schema:43,section:"agent_remove",scope,available:false,feedback_workspace_id:"feedback",...(scope==="origin"&&reason!=="origin_not_registered"?{origin_workspace_id:"registered"}:{}),evidence:"unavailable",reason};const h=harness(data);
  if(reason==="origin_not_registered"&&scope!=="origin"){await assert.rejects(h.preview({scope}));return;}
  assert.equal((await h.preview({scope})).details.available,false);await assert.rejects(h.read({scope,action:"apply",plan_id:"c".repeat(64)}));assert.equal(h.calls.length,1);
  for(const extra of [{raw:"PRIVATE"},{agent_remove:fixture(scope).agent_remove},{reason:"PRIVATE"},{evidence:"native_exact_agent_removal_plan_not_consent"},{feedback_workspace_id:null}]){const bad=harness({...data,...extra});await assert.rejects(bad.preview({scope}));assert.equal(bad.calls.length,1);}
@@ -105,7 +105,7 @@ for (const direction of ["stop-to-remove", "remove-to-stop"]) test(`separate con
  const v = stop.agent_remove; delete stop.agent_remove;
  stop.section = v.operation = "agent_stop"; stop.evidence = v.evidence = "native_exact_agent_stop_plan_not_consent";
  delete v.schedules_before; delete v.enabled_schedules_before; delete v.observation;
- Object.assign(v, { desired_before: false, running_before: false, limitations: [...agentStopLimitations] }); stop.agent_stop = v;
+ Object.assign(v, { desired_before: false, running_before: false, observation: {evidence:"unknown_not_observed",registration:"unknown",runner:"unknown"}, limitations: [...agentStopLimitations] }); stop.agent_stop = v;
  const first = direction === "stop-to-remove" ? "agent_stop" : "agent_remove", second = direction === "stop-to-remove" ? "agent_remove" : "agent_stop";
  const h = harness(first === "agent_stop" ? stop : removal);
  h.approvals.push(true); await h.read({ section: first });

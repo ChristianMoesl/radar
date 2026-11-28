@@ -555,11 +555,11 @@ execution callback before releasing manager serialization, including guard panic
 unwinding. A recovered native callback panic remains failure, never successful
 completion. Already-entered callbacks drain without rollback; this does not grant
 an asynchronous caller fresh scope or resource admission. This native capture
-remains private behind
-the finite schema-42 daemon/client projection, not a CLI/Pi stop control. Cancellation, drift or a lost reply never restores it. Desired-state persistence is not rolled
-back after a later shutdown failure. These point-in-time guards do not attest a
-PID incarnation or make filesystem checks transactional. This internal boundary
-is not user consent or a public diagnostic/CLI/Pi stop-preview capability;
+remains private behind the finite schema-43 daemon/client/CLI/Pi projection.
+Cancellation, drift or a lost reply never restores it. Desired-state persistence
+is not rolled back after a later shutdown failure. These point-in-time guards do
+not attest a PID incarnation or make filesystem checks transactional. A native
+plan is not user consent; trusted adapters require separate fresh approval.
 `runtime_controls` remains unsupported. Shutdown acknowledgement is not completed
 agent work, a successful checkpoint, released leases or resource absence.
 
@@ -573,8 +573,10 @@ original directories and observed registration/owner/socket leaves must remain
 stable across these bounded reads. Unsafe, replaced, cancelled or expired evidence
 is unknown; partial native errors do not imply rollback or erase observed facts.
 Inspection is memory-only, never a fresh probe or restored admission. Private
-extensions are not native definition fields. This internal typed observation is
-not yet a daemon/CLI/Pi result field; public stop results remain handler evidence.
+extensions are not native definition fields. Schema 43 now projects only this finite evidence through daemon/CLI/Pi stop
+results as `observation`, separately from the unchanged handler outcome. Unknown
+observations stay unknown after handler success; errors may coexist with observed
+effects. No private evidence or new control permission is exposed.
 
 The daemon's private adapter preparation now binds the exact registered feedback
 caller, origin/feedback/installation scope and current task's exact agent ref.
@@ -588,7 +590,7 @@ In-process execution consumes before further validation and invalidates resource
 observations once native dispatch begins, including failed or cancelled returns.
 These checks are point-in-time admission, not a transaction with all concurrent
 collection or filesystem writes. [Exact registered-agent stop control](integrations/pi-agent-stop.md)
-projects finite native facts through the strict schema-42 daemon/client/CLI/Pi
+projects finite native facts through the strict schema-43 daemon/client/CLI/Pi
 boundary, with current-daemon managed handler evidence and no startup/replay.
 Pi now binds the complete immutable latest unexpired exact task/agent preview to
 the registered feedback workspace and identified session. Preview reads require
@@ -639,7 +641,7 @@ detached observations; unsafe fields stay unknown. The timestamp bounds complete
 point-in-time reads, not an atomic snapshot, later freshness, runner/workspace/sandbox
 absence, other-owner release, cleanup eligibility or safe retry. Copies share the
 same result; inspection never performs I/O or restores consumed admission.
-Schema 42 projects only this finite native checkpoint evidence separately from
+Schema 43 projects only this finite native checkpoint evidence separately from
 handler status through the daemon, CLI and Pi. Unknown observations stay unknown
 even after handler success; failed handlers may still have observed effects.
 This adds no control permission; persisted formats are unchanged.
@@ -652,7 +654,7 @@ The original native monotonic expiry is not extended; retained native and comple
 adapter/guard context are budgeted together. Apply consumes before live checks;
 failed/cancelled native return after guard entry invalidates cached resources and
 may be partial, never rollback, safe retry or independently verified outcomes.
-A finite schema-42 daemon/client projection now exposes this same admission and
+A finite schema-43 daemon/client projection now exposes this same admission and
 executor through `diagnostics-maintenance`, operation `agent_remove`. Exact feedback
 CLI/Pi removal requires the latest immutable
 preview bound to this feedback workspace and identified Pi session plus SEPARATE
@@ -663,7 +665,7 @@ discloses schedule-disable, registration-unlink/association-release and preserva
 separately from capture counts and handler-only managed evidence. Trusted callers
 must obtain separate fresh exact-target registration-removal consent. No implicit
 stop, daemon startup, replay, cleanup or sandbox deletion is authorized. All existing
-CLI/daemon/loaded-Pi diagnostics must match schema 42; reload installed Pi sources
+CLI/daemon/loaded-Pi diagnostics must match schema 43; reload installed Pi sources
 separately. This is not a registry/data migration; persisted formats are unchanged.
 
 The new ownership-intent format is version 1; it is additive and leaves existing registration, native store, workspace registry and Radar database formats unchanged. Existing explicit registrations require no migration and are not silently converted to managed ownership. Invalid ownership intents are rejected, never reset.

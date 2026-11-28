@@ -94,7 +94,7 @@ func TestPiFeedbackDiagnosticsIsDedicatedEmbeddedTopic(t *testing.T) {
 		"## Explicit installation-wide collection refresh", "30-second", "collection-only adapter",
 		"## Explicit manual cleanup bundle guard check", "cleanup_check", "(pi-cleanup-check.md)", "complete_cleanup_execution_eligibility",
 		"request_outcome_unknown_do_not_replay", "plan ID establishes", "freshness, not user consent",
-		"does not call ordinary daemon refresh", "cleanup_apply", "schema 42", "native_cleanup_returned_target_summaries", "native_cleanup_execution_boundaries", "provider_call", "attempted_targets", "not_completed_may_be_partial",
+		"does not call ordinary daemon refresh", "cleanup_apply", "schema 43", "native_cleanup_returned_target_summaries", "native_cleanup_execution_boundaries", "provider_call", "attempted_targets", "not_completed_may_be_partial",
 		"complete integration envelope", "Unknown sibling fields", "native evidence shape",
 		"## Durable-agent registration and checkpoint evidence",
 		"complete agent inventory envelope", "Unavailable supervision never bypasses",
@@ -118,7 +118,7 @@ func TestPiCleanupCheckContractIsSeparatelyBundled(t *testing.T) {
 	if err != nil || check.Title != "Pi manual cleanup bundle guard checks" {
 		t.Fatalf("guard-check topic unavailable: %+v %v", check.Topic, err)
 	}
-	for _, contract := range []string{"[Pi feedback diagnostics](pi-diagnostics.md)", "## Explicit manual cleanup bundle guard check", "cleanup_check", "entire ordered resource bundle", "fresh interactive exact-task/scope confirmation", "cleanup.Service.CheckBundle", "coordination files/directories", "existing-inode probes", "no-created-lease-files", "cooperative 30-second", "automatically retried", "guards_passed_at_check", "not_passed_or_unavailable", "not be replayed", "last-moment checks", "schema 42", "No apply token"} {
+	for _, contract := range []string{"[Pi feedback diagnostics](pi-diagnostics.md)", "## Explicit manual cleanup bundle guard check", "cleanup_check", "entire ordered resource bundle", "fresh interactive exact-task/scope confirmation", "cleanup.Service.CheckBundle", "coordination files/directories", "existing-inode probes", "no-created-lease-files", "cooperative 30-second", "automatically retried", "guards_passed_at_check", "not_passed_or_unavailable", "not be replayed", "last-moment checks", "schema 43", "No apply token"} {
 		if !strings.Contains(check.Content, contract) {
 			t.Errorf("guard-check contract omitted: %q", contract)
 		}
@@ -130,14 +130,14 @@ func TestPiCleanupCheckContractIsSeparatelyBundled(t *testing.T) {
 
 func TestPiPolicyContractsAreSeparatelyBundled(t *testing.T) {
 	diagnostics, err := Read("docs/integrations/pi-diagnostics.md")
-	if err != nil || !strings.Contains(diagnostics.Content, "(pi-policy.md#configuration-policy-and-origins)") || !strings.Contains(diagnostics.Content, "(pi-policy.md#recorded-workspace-policy-diagnostics-schema-42)") {
+	if err != nil || !strings.Contains(diagnostics.Content, "(pi-policy.md#configuration-policy-and-origins)") || !strings.Contains(diagnostics.Content, "(pi-policy.md#recorded-workspace-policy-diagnostics-schema-43)") {
 		t.Fatalf("diagnostics must link both policy contracts: %v", err)
 	}
 	policy, err := Read("docs/integrations/pi-policy.md")
 	if err != nil || policy.Title != "Pi configuration and workspace policy" {
 		t.Fatalf("policy topic unavailable: %+v %v", policy.Topic, err)
 	}
-	for _, contract := range []string{"[Pi feedback diagnostics](pi-diagnostics.md)", "## Configuration policy and origins", "CLI-process global defaults", "daemon-process global defaults", "compiled_default", "configuration_file", "At most 64 KiB", "## Recorded workspace policy (diagnostics schema 42)", "registered_workspace_recipe_policy", "workspace_effective_policy", "historical per-setting", "public shape", "not private recipe bytes", "Pi validates the complete envelope", "not a registry/data migration", "separately installed Pi extension", "## Current registered member repository declarations (schema 42)", "current_member_repository_declarations", "registered source repository", "no repository override", "repository_default", "point-in-time checks"} {
+	for _, contract := range []string{"[Pi feedback diagnostics](pi-diagnostics.md)", "## Configuration policy and origins", "CLI-process global defaults", "daemon-process global defaults", "compiled_default", "configuration_file", "At most 64 KiB", "## Recorded workspace policy (diagnostics schema 43)", "registered_workspace_recipe_policy", "workspace_effective_policy", "historical per-setting", "public shape", "not private recipe bytes", "Pi validates the complete envelope", "not a registry/data migration", "separately installed Pi extension", "## Current registered member repository declarations (schema 43)", "current_member_repository_declarations", "registered source repository", "no repository override", "repository_default", "point-in-time checks"} {
 		if !strings.Contains(policy.Content, contract) {
 			t.Errorf("policy contract omitted: %q", contract)
 		}
@@ -194,7 +194,7 @@ func TestPiRecreationPreviewContractIsSeparatelyBundled(t *testing.T) {
 		}
 	}
 	cli, err := Read("docs/cli.md")
-	if err != nil || !strings.Contains(cli.Content, "(integrations/pi-recreation-preview.md)") || !strings.Contains(cli.Content, "schema 42") {
+	if err != nil || !strings.Contains(cli.Content, "(integrations/pi-recreation-preview.md)") || !strings.Contains(cli.Content, "schema 43") {
 		t.Fatalf("CLI must link the matching-schema native proposal: %v", err)
 	}
 }
@@ -212,7 +212,7 @@ func TestPiManualCleanupExactPlanContractIsBundled(t *testing.T) {
 		"### Separate exact-plan destructive apply", "separate fresh interactive destructive", "every ordered target/effect/safety",
 		"no subset apply", "silent replan", "consumed before live", "coordination", "cleanup.Service.Execute",
 		"cleanup_execution", "attempted Cleanup-call count", "not independently verified resource absence",
-		"not forced cancellation or rollback", "cleanup_apply: true", "schema 42", "persisted formats",
+		"not forced cancellation or rollback", "cleanup_apply: true", "schema 43", "persisted formats",
 		"expiry_cleanup_apply: true", "(pi-expiry-cleanup.md)",
 	} {
 		if !strings.Contains(doc.Content, contract) {
@@ -298,7 +298,7 @@ func TestPiExpiryConsentContractIsSeparatelyBundled(t *testing.T) {
 		t.Fatalf("expiry topic unavailable: %+v %v", doc.Topic, err)
 	}
 	for _, contract := range []string{
-		"[Pi feedback diagnostics](pi-diagnostics.md)", "cleanup_mode: \"expired\"", "workspace_id", "expired mode rejects `parent_id`", "No row, cursor, limit, state", "provider Cleanup", "seven-day expiry gate", "including other", "fresh", "metadata-read approval", "complete ordered selected bundle", "32 KiB", "Paths, names, branches, messages", "Stopped registered owners block", "unknown", "SEPARATE", "interactive whole-plan destructive data-loss approval", "immutable", "identified Pi session", "never deletion consent", "consume the UI", "60-second monotonic one-use", "trusted", "including unpublished commits", "Missing-member cleanup retains its branch", "remote repositories", "authored-lifecycle", "not", "independent resource absence", "partial changes", "automatically retry or silently replan", "no paged/native-old fallback", "schema42", "No persisted data",
+		"[Pi feedback diagnostics](pi-diagnostics.md)", "cleanup_mode: \"expired\"", "workspace_id", "expired mode rejects `parent_id`", "No row, cursor, limit, state", "provider Cleanup", "seven-day expiry gate", "including other", "fresh", "metadata-read approval", "complete ordered selected bundle", "32 KiB", "Paths, names, branches, messages", "Stopped registered owners block", "unknown", "SEPARATE", "interactive whole-plan destructive data-loss approval", "immutable", "identified Pi session", "never deletion consent", "consume the UI", "60-second monotonic one-use", "trusted", "including unpublished commits", "Missing-member cleanup retains its branch", "remote repositories", "authored-lifecycle", "not", "independent resource absence", "partial changes", "automatically retry or silently replan", "no paged/native-old fallback", "schema43", "No persisted data",
 	} {
 		if !strings.Contains(doc.Content, contract) {
 			t.Errorf("expiry consent contract omitted %q", contract)
@@ -314,7 +314,7 @@ func TestDocumentationNativeStopIndependentObservation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, contract := range []string{"private native stop plan", "immutable shared `Observation()`", "matching stopped", "captured snapshot-PID liveness", "observed registration/owner/socket leaves", "Inspection is memory-only", "not yet a daemon/CLI/Pi result field", "public stop results remain handler evidence"} {
+	for _, contract := range []string{"private native stop plan", "immutable shared `Observation()`", "matching stopped", "captured snapshot-PID liveness", "observed registration/owner/socket leaves", "Inspection is memory-only", "Schema 43 now projects only this finite evidence", "separately from the unchanged handler outcome", "Unknown\nobservations stay unknown"} {
 		if !strings.Contains(doc.Content, contract) {
 			t.Errorf("native stop observation contract omitted %q", contract)
 		}
@@ -338,7 +338,7 @@ func TestDocumentationAgentStopInterruptionConsentBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, contract := range []string{"schema 42", "section `agent_stop`", "registered `agent_id`", "identified Pi session", "Headless, denied", "desired-state persistence", "not a consent-token issuer", "every attempt consumes", "Context/session recapture", "--section agent_stop", "agent_stop_daemon_client_transport: true", "agent_stop_previews: true", "agent_stop_apply: true", "runtime_controls", "separate fresh interactive exact-target interruption consent", "immutable latest preview", "Duplicate (including escaped)", "30-second expiry", "15-second cap", "including connected shutdown I/O", "expiry observed after effects", "16-entry per-task", "32 KiB", "agent-stop", "not_process_outcome", "no rollback or safe-retry", "Persisted formats", "not a registry/data migration"} {
+	for _, contract := range []string{"schema 43", "section `agent_stop`", "registered `agent_id`", "identified Pi session", "Headless, denied", "desired-state persistence", "not a consent-token issuer", "every attempt consumes", "Context/session recapture", "--section agent_stop", "agent_stop_daemon_client_transport: true", "agent_stop_previews: true", "agent_stop_apply: true", "runtime_controls", "separate fresh interactive exact-target interruption consent", "immutable latest preview", "Duplicate (including escaped)", "30-second expiry", "15-second cap", "including connected shutdown I/O", "expiry observed after effects", "16-entry per-task", "32 KiB", "agent-stop", "not_process_outcome", "no rollback or safe-retry", "Persisted formats", "not a registry/data migration"} {
 		if !strings.Contains(doc.Content, contract) {
 			t.Errorf("stop transport contract omitted %q", contract)
 		}
@@ -347,7 +347,7 @@ func TestDocumentationAgentStopInterruptionConsentBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, contract := range []string{"## Exact registered-agent stop (schema 42)", "agent_stop_previews: true", "agent_stop_apply: true", "separate exact-target interruption", "identified Pi session"} {
+	for _, contract := range []string{"## Exact registered-agent stop (schema 43)", "agent_stop_previews: true", "agent_stop_apply: true", "separate exact-target interruption", "identified Pi session"} {
 		if !strings.Contains(overview.Content, contract) {
 			t.Errorf("stop overview omitted %q", contract)
 		}
@@ -364,7 +364,7 @@ func TestDiagnosticAgentRemovalExactConsentContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"schema 42", "agent_remove_daemon_client_transport: true", "agent_remove_previews: true", "agent_remove_apply: true", "runtime_controls: false", "SEPARATE fresh", "immutable latest", "schedule-disable", "schedules_before", "enabled_schedules_before", "capture counts", "Duplicate (including escaped)", "16-entry per-task", "30-second expiry", "32 KiB", "36 KiB", "agent-remove", "native_remove_callback_entered_not_resource_outcome", "identified Pi session", "Headless, denied", "every\nattempt consumes", "Context/session recapture", "not a consent-token issuer", "--section agent_remove", "Stop\nconsent is never removal consent", "checks cooperative cancellation immediately", "retained registration still holds", "Cancellation during unlink may follow both effects", "never restores schedules, registration or one-use admission", "trusted", "other owners", "no reset", "Persisted formats", "not a registry/data migration"} {
+	for _, want := range []string{"schema 43", "agent_remove_daemon_client_transport: true", "agent_remove_previews: true", "agent_remove_apply: true", "runtime_controls: false", "SEPARATE fresh", "immutable latest", "schedule-disable", "schedules_before", "enabled_schedules_before", "capture counts", "Duplicate (including escaped)", "16-entry per-task", "30-second expiry", "32 KiB", "36 KiB", "agent-remove", "native_remove_callback_entered_not_resource_outcome", "identified Pi session", "Headless, denied", "every\nattempt consumes", "Context/session recapture", "not a consent-token issuer", "--section agent_remove", "Stop\nconsent is never removal consent", "checks cooperative cancellation immediately", "retained registration still holds", "Cancellation during unlink may follow both effects", "never restores schedules, registration or one-use admission", "trusted", "other owners", "no reset", "Persisted formats", "not a registry/data migration"} {
 		if !strings.Contains(doc.Content, want) {
 			t.Fatalf("missing removal contract %q", want)
 		}
@@ -392,7 +392,7 @@ func TestDocumentationNativeRemovalObservationProjectionBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"shared immutable `Observation()`", "separate\nfrom the handler error", "ORIGINAL captured root/instance identities", "complete decoded native state", "pending payloads and admission metadata", "missing/empty schedules must remain unchanged", "No private payload or history is retained", "Cancelled/expired requests acquire no", "inspection never performs I/O", "Schema 42 projects only this finite native checkpoint evidence separately", "This adds no control permission; persisted formats are unchanged"} {
+	for _, want := range []string{"shared immutable `Observation()`", "separate\nfrom the handler error", "ORIGINAL captured root/instance identities", "complete decoded native state", "pending payloads and admission metadata", "missing/empty schedules must remain unchanged", "No private payload or history is retained", "Cancelled/expired requests acquire no", "inspection never performs I/O", "Schema 43 projects only this finite native checkpoint evidence separately", "This adds no control permission; persisted formats are unchanged"} {
 		if !strings.Contains(doc.Content, want) {
 			t.Errorf("missing private native removal observation boundary %q", want)
 		}
@@ -407,6 +407,18 @@ func TestDocumentationNativeAgentPreparationSinglePlanBoundary(t *testing.T) {
 	for _, want := range []string{"once under the existing native creation/update and note-relocation locks", "full native plan and request", "without\nreplanning from a public plan ID", "Bundle leases, registration drift checks", "per-effect branch/runtime safeguards", "canonical note path and effective linking key", "ownership intent, including on preview and no-change recovery", "between the initial ownership read and native planning", "unattached note can still be", "changed association is never overwritten", "fresh add preview/apply can resume creation at the exact retained anchor", "initial-add recovery\nonly", "not permission to replace an already bound agent's missing registration", "Occupied anchors are refused rather than adopted", "retained intent is never rewritten", "stale agent plan", "no resource changes", "not a resource outcome or proof of safe retry", "not end-to-end retained startup admission", "current/desired bundle leases through sandbox resumption", "native registry's own codec/normalization", "not a public digest or a freshly", "Full registration drift is checked before/after resumption", "Native resource failures skip completion", "failures do not roll back accepted notes", "all paths release admission", "not a transaction against external SBX actors", "native runner launch/readiness now stays inside", "original full bundle admission", "non-serialized in-process continuation", "not a second executor or consent", "requires the expected binding", "never\nruns for preview or initial add", "checked again after the\ncontinuation returns", "post-preparation fallback launch", "closes and drains its continuation", "Retained\ncallbacks cannot execute later", "a recovered startup panic cannot become\nsuccessful completion", "Already-entered callbacks drain before return", "not grant an asynchronous provider a new admission", "panic unwinding release admission", "Shared agent tool leases", "Explicit workspace\nbindings remain validation-only", "retained exact agent-registration/owner preview across separate requests", "start/restart controls remain unsupported", "runtime_controls", "does not persist new desired-running intent", "before successful native workspace preparation", "previous desired state unchanged", "cannot become\nan automatic supervisor retry", "healthy matching runner needs no preparation", "persists intent before runner launch", "partial effects are not rolled back", "not atomic restart", "Existing desired-running registrations", "accepted stop still persists stopped", "captures the original full agent registration", "exact raw-byte hash, file identity", "immediate root/instance identities", "without overwriting concurrent changes or clearing retry evidence", "bounded no-follow/nonblocking reader", "unrelated directory writes remain allowed", "original decoded registration unchanged", "supervision uses the same guard", "not an atomic filesystem compare-and-swap", "a guard after our own accepted\nwrite", "stop persistence and storage formats are unchanged"} {
 		if !strings.Contains(doc.Content, want) {
 			t.Errorf("missing native agent preparation boundary %q", want)
+		}
+	}
+}
+
+func TestDocumentationPublicStopObservationBoundary(t *testing.T) {
+	doc, err := Read("docs/integrations/pi-agent-stop.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, contract := range []string{"Schema 43 requires `observation`", "unknown_not_observed", "bounded_native_stop_reads", "matching_stopped_definition", "original_preserved", "matching_listener_present", "no_listener_and_no_live_observed_owner", "original native expiry", "handler success never fills it in", "Resource refresh remains pending", "changes no persisted data, native executor or consent policy"} {
+		if !strings.Contains(doc.Content, contract) {
+			t.Errorf("public stop observation contract omitted %q", contract)
 		}
 	}
 }

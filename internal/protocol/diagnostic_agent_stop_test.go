@@ -8,7 +8,7 @@ import (
 
 func agentStopContractFixture() (DiagnosticAgentStop, DiagnosticMaintenanceRequest) {
 	q := DiagnosticMaintenanceRequest{Schema: DiagnosticsVersion, Operation: "agent_stop", Mode: "preview", Scope: "origin", ParentID: "record", AgentID: "worker"}
-	v := DiagnosticAgentStop{Schema: DiagnosticsVersion, Operation: "agent_stop", Mode: "preview", Scope: "origin", RecordID: "record", TaskID: 7, AgentID: "worker", FeedbackWorkspaceID: "feedback", ScopeWorkspaceID: "origin", AgentWorkspaceID: "origin", Evidence: "native_exact_agent_stop_plan_not_consent", PlanID: strings.Repeat("a", 64), ExpiresAt: time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339Nano), Revision: 1, DesiredBefore: true, RunningBefore: true, DispatchEvidence: "not_dispatched", Problem: "none", Outcome: "not_attempted", Limitations: DiagnosticAgentStopLimitations()}
+	v := DiagnosticAgentStop{Schema: DiagnosticsVersion, Operation: "agent_stop", Mode: "preview", Scope: "origin", RecordID: "record", TaskID: 7, AgentID: "worker", FeedbackWorkspaceID: "feedback", ScopeWorkspaceID: "origin", AgentWorkspaceID: "origin", Evidence: "native_exact_agent_stop_plan_not_consent", PlanID: strings.Repeat("a", 64), ExpiresAt: time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339Nano), Revision: 1, DesiredBefore: true, RunningBefore: true, DispatchEvidence: "not_dispatched", Problem: "none", Outcome: "not_attempted", Observation: UnknownDiagnosticAgentStopObservation(), Limitations: DiagnosticAgentStopLimitations()}
 	return v, q
 }
 func TestDiagnosticAgentStopFiniteContract(t *testing.T) {

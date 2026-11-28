@@ -6,7 +6,7 @@ import { agentStopLimitations } from "../../extensions/pi-radar/agent-stop.ts";
 
 function fixture(scope = "origin", desired = true, running = false): any {
  const target = scope === "feedback" ? "feedback" : "registered";
- return {diagnostics_schema:42,section:"agent_stop",scope,available:true,feedback_workspace_id:"feedback",...(scope==="origin"?{origin_workspace_id:target}:{}),evidence:"native_exact_agent_stop_plan_not_consent",agent_stop:{diagnostics_schema:42,operation:"agent_stop",mode:"preview",scope,record_id:"record",task_id:7,agent_id:"worker",feedback_workspace_id:"feedback",...(scope!=="installation"?{scope_workspace_id:target}:{}),agent_workspace_id:target,evidence:"native_exact_agent_stop_plan_not_consent",plan_id:"c".repeat(64),expires_at:new Date(Date.now()+30_000).toISOString(),revision:3,desired_before:desired,running_before:running,dispatch_evidence:"not_dispatched",problem:"none",outcome:"not_attempted",resource_refresh_pending:false,limitations:[...agentStopLimitations]}};
+ return {diagnostics_schema:43,section:"agent_stop",scope,available:true,feedback_workspace_id:"feedback",...(scope==="origin"?{origin_workspace_id:target}:{}),evidence:"native_exact_agent_stop_plan_not_consent",agent_stop:{diagnostics_schema:43,operation:"agent_stop",mode:"preview",scope,record_id:"record",task_id:7,agent_id:"worker",feedback_workspace_id:"feedback",...(scope!=="installation"?{scope_workspace_id:target}:{}),agent_workspace_id:target,evidence:"native_exact_agent_stop_plan_not_consent",plan_id:"c".repeat(64),expires_at:new Date(Date.now()+30_000).toISOString(),revision:3,desired_before:desired,running_before:running,dispatch_evidence:"not_dispatched",problem:"none",outcome:"not_attempted",resource_refresh_pending:false,observation:{evidence:"unknown_not_observed",registration:"unknown",runner:"unknown"},limitations:[...agentStopLimitations]}};
 }
 function harness(data: any = fixture()) {
  const tools = new Map<string, any>(["mcp__linear__get_project","mcp__linear__save_issue"].map(name=>[name,{name,exposure:"direct"}]));let active=[...tools.keys()];
@@ -74,7 +74,7 @@ for(const stage of ["preview","apply"])for(const drift of ["workspace","session"
  const h=harness(),abort=new AbortController();if(stage==="apply")await h.preview();const original=h.pi.exec;h.pi.exec=async(...args:any[])=>{const result=await original(...args);if(drift==="workspace")h.ctx.cwd="/work/other";if(drift==="session")h.ctx.session="other";if(drift==="context")h.session.update({feedback:true},h.ctx);if(drift==="abort")abort.abort();if(drift==="ui")h.ctx.hasUI=false;if(drift==="mcp")h.tools.clear();return result;};h.approvals.push(true);await assert.rejects(h.read(stage==="apply"?{action:"apply",plan_id:h.data.agent_stop.plan_id}:{},abort.signal));assert.equal(h.calls.length,stage==="apply"?2:1);
 });
 for(const scope of ["origin","feedback","installation"])for(const reason of ["origin_not_registered","daemon_unavailable","agent_stop_outcome_unknown_do_not_replay"])test(`stop unavailable evidence does not fall back ${scope}/${reason}`,async()=>{
- const data={diagnostics_schema:42,section:"agent_stop",scope,available:false,feedback_workspace_id:"feedback",...(scope==="origin"&&reason!=="origin_not_registered"?{origin_workspace_id:"registered"}:{}),evidence:"unavailable",reason};const h=harness(data);
+ const data={diagnostics_schema:43,section:"agent_stop",scope,available:false,feedback_workspace_id:"feedback",...(scope==="origin"&&reason!=="origin_not_registered"?{origin_workspace_id:"registered"}:{}),evidence:"unavailable",reason};const h=harness(data);
  if(reason==="origin_not_registered"&&scope!=="origin"){await assert.rejects(h.preview({scope}));return;}
  assert.equal((await h.preview({scope})).details.available,false);await assert.rejects(h.read({scope,action:"apply",plan_id:"c".repeat(64)}));assert.equal(h.calls.length,1);
  for(const extra of [{raw:"PRIVATE"},{agent_stop:fixture(scope).agent_stop},{reason:"PRIVATE"},{evidence:"native_exact_agent_stop_plan_not_consent"},{feedback_workspace_id:null}]){const bad=harness({...data,...extra});await assert.rejects(bad.preview({scope}));assert.equal(bad.calls.length,1);}
@@ -94,4 +94,41 @@ test("stop Pi limitations and capability scope agree with the native protocol", 
  assert.deepEqual(agentStopLimitations, labels);
  const cli = await readFile(new URL("../../cmd/radar/feedback.go", import.meta.url), "utf8");
  for (const contract of ['"agent_stop_previews": true', '"agent_stop_apply": true', '"runtime_controls": false']) assert.ok(cli.includes(contract));
+});
+
+const nativeTime = () => new Date(Date.now() - 1).toISOString().replace(/(\.\d*?)0+Z$/, "$1Z").replace(".Z", "Z");
+function observedFixture() { const d = fixture(); d.agent_stop.expires_at = new Date(Date.now() + 29_000).toISOString(); return d; }
+function observed() { return {evidence:"bounded_native_stop_reads",registration:"matching_stopped_definition",runner:"no_listener_and_no_live_observed_owner",observed_at:nativeTime()}; }
+for (const registration of ["unknown","matching_stopped_definition","original_preserved"]) for (const runner of ["unknown","matching_listener_present","no_listener_and_no_live_observed_owner"]) for (const failed of [false,true]) test(`stop native observation is separate from handler ${registration}/${runner}/${failed}`, async () => {
+ const h = harness(observedFixture()); await h.preview();
+ h.mutation = (d:any) => { d.agent_stop.observation = {...observed(),registration,runner}; if (failed) Object.assign(d.agent_stop,{outcome:"unverified_may_be_partial",problem:"native_error"}); };
+ const result = await h.apply(); assert.equal(result.details.agent_stop.observation.registration,registration); assert.equal(result.details.agent_stop.observation.runner,runner); assert.equal(result.details.agent_stop.problem,failed?"native_error":"none");
+ await assert.rejects(h.apply()); assert.equal(h.calls.length,2);
+});
+const badObservations: Record<string,(v:any)=>void> = {
+ missing:v=>delete v.observation, null:v=>v.observation=null, extra:v=>v.observation.hash="PRIVATE", checkpoint:v=>v.observation.checkpoint={payload:"PRIVATE"}, registration:v=>v.observation.registration="PRIVATE", runner:v=>v.observation.runner="PRIVATE", evidence:v=>v.observation.evidence="PRIVATE", missing_time:v=>delete v.observation.observed_at, null_time:v=>v.observation.observed_at=null,
+ private_time:v=>v.observation.observed_at="PRIVATE", future:v=>v.observation.observed_at=new Date(Date.now()+1000).toISOString(), stale:v=>v.observation.observed_at=new Date(Date.now()-60_000).toISOString(), offset:v=>v.observation.observed_at="2026-11-27T13:00:00+00:00", noncanonical:v=>v.observation.observed_at=nativeTime().replace("Z","0Z"),
+ unknown_time:v=>v.observation.evidence="unknown_not_observed", cancelled:v=>Object.assign(v,{problem:"cancelled_or_timed_out",outcome:"unverified_may_be_partial"}), old_schema:v=>v.diagnostics_schema=42,
+};
+for (const key of ["evidence","registration","runner"]) for (const mode of ["missing","null"]) badObservations[`${key}_${mode}`] = v=>{if(mode==="missing")delete v.observation[key];else v.observation[key]=null;};
+for (const [kind, mutate] of Object.entries(badObservations)) test(`stop rejects private or inconsistent nested observation ${kind}`, async () => {
+ const h = harness(observedFixture()); await h.preview(); h.mutation=(d:any)=>{d.agent_stop.observation=observed();mutate(d.agent_stop);};
+ await assert.rejects(h.apply(),e=>e instanceof Error&&!e.message.includes("PRIVATE")); assert.equal(h.calls.length,2); await assert.rejects(h.apply()); assert.equal(h.calls.length,2);
+});
+test("preview cannot advertise already-observed stop outcomes", async () => { const d=observedFixture();d.agent_stop.observation=observed();await assert.rejects(harness(d).preview()); });
+test("nested observation nanosecond order is checked without Date truncation", async () => {
+ const h=harness(observedFixture());h.data.agent_stop.expires_at=new Date(Date.now()+29_000).toISOString().replace(/\.\d{3}Z$/,".123456781Z");await h.preview();
+ h.mutation=(d:any)=>d.agent_stop.observation={...observed(),observed_at:d.agent_stop.expires_at.replace("123456781","123456782")};await assert.rejects(h.apply());assert.equal(h.calls.length,2);
+});
+
+for (const kind of ["duplicate", "escaped_duplicate", "folded"]) test(`nested stop observation keys fail closed ${kind}`, async () => {
+ const h=harness(observedFixture()); await h.preview(); const original=h.pi.exec;
+ h.mutation=(d:any)=>d.agent_stop.observation=observed();
+ h.pi.exec=async(...args:any[])=>{const reply=await original(...args); let raw=reply.stdout;
+  if(kind==="duplicate")raw=raw.replace('"runner":"no_listener_and_no_live_observed_owner"','"runner":"no_listener_and_no_live_observed_owner","runner":"no_listener_and_no_live_observed_owner"');
+  if(kind==="escaped_duplicate")raw=raw.replace('"runner":"no_listener_and_no_live_observed_owner"','"runn\\u0065r":"no_listener_and_no_live_observed_owner","runner":"no_listener_and_no_live_observed_owner"');
+  if(kind==="folded")raw=raw.replace('"runner":"no_listener_and_no_live_observed_owner"','"Runner":"no_listener_and_no_live_observed_owner"');
+  assert.notEqual(raw,reply.stdout);return {...reply,stdout:raw};
+ };
+ await assert.rejects(h.apply()); await assert.rejects(h.apply()); assert.equal(h.calls.length,2);
 });
