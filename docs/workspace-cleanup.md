@@ -164,7 +164,7 @@ callback and delegates to the unchanged candidate/provider execution guards.
 This in-process value is not public transport, fresh registration admission,
 user consent, a one-use cache or safe-replay authority. A typed diagnostic caller
 must still bind fresh registered feedback/target scope, the existing one-use
-plan machinery and separate explicit preview/apply consent. The schema-43 typed
+plan machinery and separate explicit preview/apply consent. The schema-44 typed
 retirement adapter now supplies that separate binding; the native entry alone
 never does.
 
@@ -564,4 +564,4 @@ Cleanup-call boundaries, current-daemon operation and resource-invalidation
 observations are not independent removal/absence verification, rollback or safe
 retry. A cooperative deadline or lost reply may leave partial effects: never
 replay, automatically retry or silently replan. No persisted-format change is
-required; all existing CLI/daemon/loaded-Pi diagnostics must match schema43.
+required; all existing CLI/daemon/loaded-Pi diagnostics must match schema44.

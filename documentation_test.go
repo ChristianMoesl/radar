@@ -69,10 +69,26 @@ func TestDocumentationRuntimeProbeCancellationBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, contract := range []string{"whole selected runtime page", "including earlier observations", "final registration revalidation", "`not_observed`", "`cancelled_or_timed_out`", "Absolute expiry applies", "No extra probe, cached fallback or automatic retry", "ownership/leases remain uninspected"} {
+	for _, contract := range []string{"whole selected runtime page", "including earlier observations", "final registration revalidation", "`not_observed`", "`cancelled_or_timed_out`", "Absolute expiry applies", "No extra probe, cached fallback or automatic retry", "`agent_owner_count`", "including stopped registrations", "Leases\nremain `unknown_not_checked`", "changed or cancelled evidence is `unavailable` with no count, never\nzero"} {
 		if !strings.Contains(doc.Content, contract) {
 			t.Errorf("runtime probe cancellation contract omitted %q", contract)
 		}
+	}
+}
+
+func TestDocumentationRuntimeRegisteredOwnersBoundedContract(t *testing.T) {
+	doc, err := Read("docs/integrations/pi-runtime-probe.md")
+	if err != nil || doc.Title != "Pi registered-runtime observations" {
+		t.Fatal("dedicated bounded runtime contract unavailable", err)
+	}
+	for _, contract := range []string{"[Pi feedback diagnostics](pi-diagnostics.md)", "fresh interactive confirmation", "shared five-second deadline", "20 MiB", "private registry fingerprints", "fresh_bounded_registration", "agent_owner_count", "0..1024", "Stopped", "nested owners count and sibling paths do not", "not runtime ownership", "lease-holder identity", "overbudget or changed registrations", "omit the count, never zero", "unknown_not_checked", "Cancellation/expiry clears the count", "changed public counts invalidate cursors", "not a held reservation or atomic snapshot", "Persisted formats are unchanged", "schema 44", "fail closed without fallback", "complete runtime probe envelope"} {
+		if !strings.Contains(doc.Content, contract) {
+			t.Errorf("runtime registered-owner contract omitted %q", contract)
+		}
+	}
+	index, _ := Read("docs/integrations/pi-diagnostics.md")
+	if !strings.Contains(index.Content, "(pi-runtime-probe.md)") || strings.Contains(index.Content, "private registry fingerprints") {
+		t.Fatal("keep the complete runtime contract in one bounded linked topic")
 	}
 }
 
@@ -94,7 +110,7 @@ func TestPiFeedbackDiagnosticsIsDedicatedEmbeddedTopic(t *testing.T) {
 		"## Explicit installation-wide collection refresh", "30-second", "collection-only adapter",
 		"## Explicit manual cleanup bundle guard check", "cleanup_check", "(pi-cleanup-check.md)", "complete_cleanup_execution_eligibility",
 		"request_outcome_unknown_do_not_replay", "plan ID establishes", "freshness, not user consent",
-		"does not call ordinary daemon refresh", "cleanup_apply", "schema 43", "native_cleanup_returned_target_summaries", "native_cleanup_execution_boundaries", "provider_call", "attempted_targets", "not_completed_may_be_partial",
+		"does not call ordinary daemon refresh", "cleanup_apply", "schema 44", "native_cleanup_returned_target_summaries", "native_cleanup_execution_boundaries", "provider_call", "attempted_targets", "not_completed_may_be_partial",
 		"complete integration envelope", "Unknown sibling fields", "native evidence shape",
 		"## Durable-agent registration and checkpoint evidence",
 		"complete agent inventory envelope", "Unavailable supervision never bypasses",
@@ -118,7 +134,7 @@ func TestPiCleanupCheckContractIsSeparatelyBundled(t *testing.T) {
 	if err != nil || check.Title != "Pi manual cleanup bundle guard checks" {
 		t.Fatalf("guard-check topic unavailable: %+v %v", check.Topic, err)
 	}
-	for _, contract := range []string{"[Pi feedback diagnostics](pi-diagnostics.md)", "## Explicit manual cleanup bundle guard check", "cleanup_check", "entire ordered resource bundle", "fresh interactive exact-task/scope confirmation", "cleanup.Service.CheckBundle", "coordination files/directories", "existing-inode probes", "no-created-lease-files", "cooperative 30-second", "automatically retried", "guards_passed_at_check", "not_passed_or_unavailable", "not be replayed", "last-moment checks", "schema 43", "No apply token"} {
+	for _, contract := range []string{"[Pi feedback diagnostics](pi-diagnostics.md)", "## Explicit manual cleanup bundle guard check", "cleanup_check", "entire ordered resource bundle", "fresh interactive exact-task/scope confirmation", "cleanup.Service.CheckBundle", "coordination files/directories", "existing-inode probes", "no-created-lease-files", "cooperative 30-second", "automatically retried", "guards_passed_at_check", "not_passed_or_unavailable", "not be replayed", "last-moment checks", "schema 44", "No apply token"} {
 		if !strings.Contains(check.Content, contract) {
 			t.Errorf("guard-check contract omitted: %q", contract)
 		}
@@ -130,14 +146,14 @@ func TestPiCleanupCheckContractIsSeparatelyBundled(t *testing.T) {
 
 func TestPiPolicyContractsAreSeparatelyBundled(t *testing.T) {
 	diagnostics, err := Read("docs/integrations/pi-diagnostics.md")
-	if err != nil || !strings.Contains(diagnostics.Content, "(pi-policy.md#configuration-policy-and-origins)") || !strings.Contains(diagnostics.Content, "(pi-policy.md#recorded-workspace-policy-diagnostics-schema-43)") {
+	if err != nil || !strings.Contains(diagnostics.Content, "(pi-policy.md#configuration-policy-and-origins)") || !strings.Contains(diagnostics.Content, "(pi-policy.md#recorded-workspace-policy-diagnostics-schema-44)") {
 		t.Fatalf("diagnostics must link both policy contracts: %v", err)
 	}
 	policy, err := Read("docs/integrations/pi-policy.md")
 	if err != nil || policy.Title != "Pi configuration and workspace policy" {
 		t.Fatalf("policy topic unavailable: %+v %v", policy.Topic, err)
 	}
-	for _, contract := range []string{"[Pi feedback diagnostics](pi-diagnostics.md)", "## Configuration policy and origins", "CLI-process global defaults", "daemon-process global defaults", "compiled_default", "configuration_file", "At most 64 KiB", "## Recorded workspace policy (diagnostics schema 43)", "registered_workspace_recipe_policy", "workspace_effective_policy", "historical per-setting", "public shape", "not private recipe bytes", "Pi validates the complete envelope", "not a registry/data migration", "separately installed Pi extension", "## Current registered member repository declarations (schema 43)", "current_member_repository_declarations", "registered source repository", "no repository override", "repository_default", "point-in-time checks"} {
+	for _, contract := range []string{"[Pi feedback diagnostics](pi-diagnostics.md)", "## Configuration policy and origins", "CLI-process global defaults", "daemon-process global defaults", "compiled_default", "configuration_file", "At most 64 KiB", "## Recorded workspace policy (diagnostics schema 44)", "registered_workspace_recipe_policy", "workspace_effective_policy", "historical per-setting", "public shape", "not private recipe bytes", "Pi validates the complete envelope", "not a registry/data migration", "separately installed Pi extension", "## Current registered member repository declarations (schema 44)", "current_member_repository_declarations", "registered source repository", "no repository override", "repository_default", "point-in-time checks"} {
 		if !strings.Contains(policy.Content, contract) {
 			t.Errorf("policy contract omitted: %q", contract)
 		}
@@ -194,7 +210,7 @@ func TestPiRecreationPreviewContractIsSeparatelyBundled(t *testing.T) {
 		}
 	}
 	cli, err := Read("docs/cli.md")
-	if err != nil || !strings.Contains(cli.Content, "(integrations/pi-recreation-preview.md)") || !strings.Contains(cli.Content, "schema 43") {
+	if err != nil || !strings.Contains(cli.Content, "(integrations/pi-recreation-preview.md)") || !strings.Contains(cli.Content, "schema 44") {
 		t.Fatalf("CLI must link the matching-schema native proposal: %v", err)
 	}
 }
@@ -212,7 +228,7 @@ func TestPiManualCleanupExactPlanContractIsBundled(t *testing.T) {
 		"### Separate exact-plan destructive apply", "separate fresh interactive destructive", "every ordered target/effect/safety",
 		"no subset apply", "silent replan", "consumed before live", "coordination", "cleanup.Service.Execute",
 		"cleanup_execution", "attempted Cleanup-call count", "not independently verified resource absence",
-		"not forced cancellation or rollback", "cleanup_apply: true", "schema 43", "persisted formats",
+		"not forced cancellation or rollback", "cleanup_apply: true", "schema 44", "persisted formats",
 		"expiry_cleanup_apply: true", "(pi-expiry-cleanup.md)",
 	} {
 		if !strings.Contains(doc.Content, contract) {
@@ -298,7 +314,7 @@ func TestPiExpiryConsentContractIsSeparatelyBundled(t *testing.T) {
 		t.Fatalf("expiry topic unavailable: %+v %v", doc.Topic, err)
 	}
 	for _, contract := range []string{
-		"[Pi feedback diagnostics](pi-diagnostics.md)", "cleanup_mode: \"expired\"", "workspace_id", "expired mode rejects `parent_id`", "No row, cursor, limit, state", "provider Cleanup", "seven-day expiry gate", "including other", "fresh", "metadata-read approval", "complete ordered selected bundle", "32 KiB", "Paths, names, branches, messages", "Stopped registered owners block", "unknown", "SEPARATE", "interactive whole-plan destructive data-loss approval", "immutable", "identified Pi session", "never deletion consent", "consume the UI", "60-second monotonic one-use", "trusted", "including unpublished commits", "Missing-member cleanup retains its branch", "remote repositories", "authored-lifecycle", "not", "independent resource absence", "partial changes", "automatically retry or silently replan", "no paged/native-old fallback", "schema43", "No persisted data",
+		"[Pi feedback diagnostics](pi-diagnostics.md)", "cleanup_mode: \"expired\"", "workspace_id", "expired mode rejects `parent_id`", "No row, cursor, limit, state", "provider Cleanup", "seven-day expiry gate", "including other", "fresh", "metadata-read approval", "complete ordered selected bundle", "32 KiB", "Paths, names, branches, messages", "Stopped registered owners block", "unknown", "SEPARATE", "interactive whole-plan destructive data-loss approval", "immutable", "identified Pi session", "never deletion consent", "consume the UI", "60-second monotonic one-use", "trusted", "including unpublished commits", "Missing-member cleanup retains its branch", "remote repositories", "authored-lifecycle", "not", "independent resource absence", "partial changes", "automatically retry or silently replan", "no paged/native-old fallback", "schema44", "No persisted data",
 	} {
 		if !strings.Contains(doc.Content, contract) {
 			t.Errorf("expiry consent contract omitted %q", contract)
@@ -314,7 +330,7 @@ func TestDocumentationNativeStopIndependentObservation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, contract := range []string{"private native stop plan", "immutable shared `Observation()`", "matching stopped", "captured snapshot-PID liveness", "observed registration/owner/socket leaves", "Inspection is memory-only", "Schema 43 now projects only this finite evidence", "separately from the unchanged handler outcome", "Unknown\nobservations stay unknown"} {
+	for _, contract := range []string{"private native stop plan", "immutable shared `Observation()`", "matching stopped", "captured snapshot-PID liveness", "observed registration/owner/socket leaves", "Inspection is memory-only", "Schema 44 now projects only this finite evidence", "separately from the unchanged handler outcome", "Unknown\nobservations stay unknown"} {
 		if !strings.Contains(doc.Content, contract) {
 			t.Errorf("native stop observation contract omitted %q", contract)
 		}
@@ -338,7 +354,7 @@ func TestDocumentationAgentStopInterruptionConsentBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, contract := range []string{"schema 43", "section `agent_stop`", "registered `agent_id`", "identified Pi session", "Headless, denied", "desired-state persistence", "not a consent-token issuer", "every attempt consumes", "Context/session recapture", "--section agent_stop", "agent_stop_daemon_client_transport: true", "agent_stop_previews: true", "agent_stop_apply: true", "runtime_controls", "separate fresh interactive exact-target interruption consent", "immutable latest preview", "Duplicate (including escaped)", "30-second expiry", "15-second cap", "including connected shutdown I/O", "expiry observed after effects", "16-entry per-task", "32 KiB", "agent-stop", "not_process_outcome", "no rollback or safe-retry", "Persisted formats", "not a registry/data migration"} {
+	for _, contract := range []string{"schema 44", "section `agent_stop`", "registered `agent_id`", "identified Pi session", "Headless, denied", "desired-state persistence", "not a consent-token issuer", "every attempt consumes", "Context/session recapture", "--section agent_stop", "agent_stop_daemon_client_transport: true", "agent_stop_previews: true", "agent_stop_apply: true", "runtime_controls", "separate fresh interactive exact-target interruption consent", "immutable latest preview", "Duplicate (including escaped)", "30-second expiry", "15-second cap", "including connected shutdown I/O", "expiry observed after effects", "16-entry per-task", "32 KiB", "agent-stop", "not_process_outcome", "no rollback or safe-retry", "Persisted formats", "not a registry/data migration"} {
 		if !strings.Contains(doc.Content, contract) {
 			t.Errorf("stop transport contract omitted %q", contract)
 		}
@@ -347,7 +363,7 @@ func TestDocumentationAgentStopInterruptionConsentBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, contract := range []string{"## Exact registered-agent stop (schema 43)", "agent_stop_previews: true", "agent_stop_apply: true", "separate exact-target interruption", "identified Pi session"} {
+	for _, contract := range []string{"## Exact registered-agent stop (schema 44)", "agent_stop_previews: true", "agent_stop_apply: true", "separate exact-target interruption", "identified Pi session"} {
 		if !strings.Contains(overview.Content, contract) {
 			t.Errorf("stop overview omitted %q", contract)
 		}
@@ -364,7 +380,7 @@ func TestDiagnosticAgentRemovalExactConsentContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"schema 43", "agent_remove_daemon_client_transport: true", "agent_remove_previews: true", "agent_remove_apply: true", "runtime_controls: false", "SEPARATE fresh", "immutable latest", "schedule-disable", "schedules_before", "enabled_schedules_before", "capture counts", "Duplicate (including escaped)", "16-entry per-task", "30-second expiry", "32 KiB", "36 KiB", "agent-remove", "native_remove_callback_entered_not_resource_outcome", "identified Pi session", "Headless, denied", "every\nattempt consumes", "Context/session recapture", "not a consent-token issuer", "--section agent_remove", "Stop\nconsent is never removal consent", "checks cooperative cancellation immediately", "retained registration still holds", "Cancellation during unlink may follow both effects", "never restores schedules, registration or one-use admission", "trusted", "other owners", "no reset", "Persisted formats", "not a registry/data migration"} {
+	for _, want := range []string{"schema 44", "agent_remove_daemon_client_transport: true", "agent_remove_previews: true", "agent_remove_apply: true", "runtime_controls: false", "SEPARATE fresh", "immutable latest", "schedule-disable", "schedules_before", "enabled_schedules_before", "capture counts", "Duplicate (including escaped)", "16-entry per-task", "30-second expiry", "32 KiB", "36 KiB", "agent-remove", "native_remove_callback_entered_not_resource_outcome", "identified Pi session", "Headless, denied", "every\nattempt consumes", "Context/session recapture", "not a consent-token issuer", "--section agent_remove", "Stop\nconsent is never removal consent", "checks cooperative cancellation immediately", "retained registration still holds", "Cancellation during unlink may follow both effects", "never restores schedules, registration or one-use admission", "trusted", "other owners", "no reset", "Persisted formats", "not a registry/data migration"} {
 		if !strings.Contains(doc.Content, want) {
 			t.Fatalf("missing removal contract %q", want)
 		}
@@ -392,7 +408,7 @@ func TestDocumentationNativeRemovalObservationProjectionBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"shared immutable `Observation()`", "separate\nfrom the handler error", "ORIGINAL captured root/instance identities", "complete decoded native state", "pending payloads and admission metadata", "missing/empty schedules must remain unchanged", "No private payload or history is retained", "Cancelled/expired requests acquire no", "inspection never performs I/O", "Schema 43 projects only this finite native checkpoint evidence separately", "This adds no control permission; persisted formats are unchanged"} {
+	for _, want := range []string{"shared immutable `Observation()`", "separate\nfrom the handler error", "ORIGINAL captured root/instance identities", "complete decoded native state", "pending payloads and admission metadata", "missing/empty schedules must remain unchanged", "No private payload or history is retained", "Cancelled/expired requests acquire no", "inspection never performs I/O", "Schema 44 projects only this finite native checkpoint evidence separately", "This adds no control permission; persisted formats are unchanged"} {
 		if !strings.Contains(doc.Content, want) {
 			t.Errorf("missing private native removal observation boundary %q", want)
 		}
@@ -416,7 +432,7 @@ func TestDocumentationPublicStopObservationBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, contract := range []string{"Schema 43 requires `observation`", "unknown_not_observed", "bounded_native_stop_reads", "matching_stopped_definition", "original_preserved", "matching_listener_present", "no_listener_and_no_live_observed_owner", "original native expiry", "handler success never fills it in", "Resource refresh remains pending", "changes no persisted data, native executor or consent policy"} {
+	for _, contract := range []string{"Schema 44 requires `observation`", "unknown_not_observed", "bounded_native_stop_reads", "matching_stopped_definition", "original_preserved", "matching_listener_present", "no_listener_and_no_live_observed_owner", "original native expiry", "handler success never fills it in", "Resource refresh remains pending", "changes no persisted data, native executor or consent policy"} {
 		if !strings.Contains(doc.Content, contract) {
 			t.Errorf("public stop observation contract omitted %q", contract)
 		}

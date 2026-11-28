@@ -6,7 +6,7 @@ const limitations = ["installation_wide_all_registered_collection_sources_no_sub
 const planID = "a".repeat(64), targetID = "integration:"+"b".repeat(64);
 function fixture(mode="preview", expires=Date.now()+59_000): any {
   const apply=mode==="apply";
-  return {diagnostics_schema:43,section:"refresh",scope:"installation",available:true,feedback_workspace_id:"feedback",evidence:"native_collection_only_refresh",maintenance:{diagnostics_schema:43,operation:"refresh",mode,scope:"installation",evidence:"native_collection_only_refresh",status:apply?"returned":"preview",problem:"none",plan_id:planID,expires_at:new Date(expires).toISOString(),revision:1,...(apply?{operation_id:"native:1"}:{}),targets:[{id:targetID,outcome:apply?"complete":"unknown_not_attempted"}],counts:{complete:apply?1:0,incomplete:0,skipped:0,unverified:apply?0:1},resource_refresh_pending:true,limitations:[...limitations]}};
+  return {diagnostics_schema:44,section:"refresh",scope:"installation",available:true,feedback_workspace_id:"feedback",evidence:"native_collection_only_refresh",maintenance:{diagnostics_schema:44,operation:"refresh",mode,scope:"installation",evidence:"native_collection_only_refresh",status:apply?"returned":"preview",problem:"none",plan_id:planID,expires_at:new Date(expires).toISOString(),revision:1,...(apply?{operation_id:"native:1"}:{}),targets:[{id:targetID,outcome:apply?"complete":"unknown_not_attempted"}],counts:{complete:apply?1:0,incomplete:0,skipped:0,unverified:apply?0:1},resource_refresh_pending:true,limitations:[...limitations]}};
 }
 function harness() {
   const tools=new Map<string,any>([["mcp__linear__save_issue",{name:"mcp__linear__save_issue"}]]);
@@ -92,6 +92,6 @@ for(const [kind,mutate] of Object.entries({...mutations,"changed-plan":(d:any)=>
 });
 
 for(const mode of ["transport","invalid-json","oversized","unknown-response"])test(`refresh ambiguous apply remains unknown and cannot be replayed: ${mode}`,async()=>{
-  const h=harness();await h.preview();h.approvals.push(true);h.pi.exec=async(...args:any[])=>{h.calls.push(args);if(mode==="transport")throw new Error("transport lost");if(mode==="invalid-json")return {code:0,stdout:"bad-json"};if(mode==="oversized")return {code:0,stdout:"p".repeat(301*1024)};return {code:0,stdout:JSON.stringify({diagnostics_schema:43,section:"refresh",scope:"installation",available:false,feedback_workspace_id:"feedback",evidence:"unavailable",reason:"request_outcome_unknown_do_not_replay"})};};
+  const h=harness();await h.preview();h.approvals.push(true);h.pi.exec=async(...args:any[])=>{h.calls.push(args);if(mode==="transport")throw new Error("transport lost");if(mode==="invalid-json")return {code:0,stdout:"bad-json"};if(mode==="oversized")return {code:0,stdout:"p".repeat(301*1024)};return {code:0,stdout:JSON.stringify({diagnostics_schema:44,section:"refresh",scope:"installation",available:false,feedback_workspace_id:"feedback",evidence:"unavailable",reason:"request_outcome_unknown_do_not_replay"})};};
   if(mode==="unknown-response")assert.equal((await h.apply()).details.available,false);else await assert.rejects(h.apply());await assert.rejects(h.apply());assert.equal(h.calls.length,2);
 });

@@ -7,7 +7,7 @@ const id="workspace-resource:"+"a".repeat(64);
 function fixture(scope="origin", evidence="fresh_bounded_repository_configuration"): any {
  const label="explicit_current_registered_member_repository_declarations";
  const settings=repositoryPolicyKeys.map(key=>({key,value:["copy_files","setup","sbx.additional_mounts"].includes(key)?"0":key==="sbx.enabled"?"inherit":"false",origin:"repository_default",declaration:"absent"}));
- return {diagnostics_schema:43,section:"repository_policy",scope,available:true,feedback_workspace_id:scope==="feedback"?"registered":"feedback",...(scope==="origin"?{origin_workspace_id:"registered"}:{}),evidence:label,inventory:{diagnostics_schema:43,section:"repository_policy",evidence:label,observed_at:"2026-11-22T11:20:00.000000001Z",revision:2,snapshot:"a".repeat(64),total:1,pagination_complete:true,resource_refresh_pending:false,limitations:[...repositoryPolicyLimitations],items:[{id,repository_policy:{id,workspace_id:"registered",origin:"current_registered_member_repository",available:true,evidence,settings}}]}};
+ return {diagnostics_schema:44,section:"repository_policy",scope,available:true,feedback_workspace_id:scope==="feedback"?"registered":"feedback",...(scope==="origin"?{origin_workspace_id:"registered"}:{}),evidence:label,inventory:{diagnostics_schema:44,section:"repository_policy",evidence:label,observed_at:"2026-11-22T11:20:00.000000001Z",revision:2,snapshot:"a".repeat(64),total:1,pagination_complete:true,resource_refresh_pending:false,limitations:[...repositoryPolicyLimitations],items:[{id,repository_policy:{id,workspace_id:"registered",origin:"current_registered_member_repository",available:true,evidence,settings}}]}};
 }
 function harness(data:any){
  const tools=new Map<string,any>(["mcp__linear__get_project","mcp__linear__save_issue"].map(name=>[name,{name,exposure:"direct"}]));let active=[...tools.keys()];const calls:any[]=[],prompts:any[]=[],approvals:any[]=[true];
@@ -43,7 +43,7 @@ for(const reason of ["repository_unavailable","configuration_read_unavailable","
  view.settings=fixture().inventory.items[0].repository_policy.settings;await assert.rejects(harness(data).read());
 });
 for(const reason of ["origin_not_registered","daemon_unavailable","snapshot_changed_restart_pagination"])test(`unavailable repository transport has no fallback: ${reason}`,async()=>{
- const data={diagnostics_schema:43,section:"repository_policy",scope:"origin",available:false,feedback_workspace_id:"feedback",evidence:"unavailable",reason};assert.equal((await harness(data).read()).details.available,false);
+ const data={diagnostics_schema:44,section:"repository_policy",scope:"origin",available:false,feedback_workspace_id:"feedback",evidence:"unavailable",reason};assert.equal((await harness(data).read()).details.available,false);
  for(const [key,value]of [["inventory",fixture().inventory],["raw","private-secret"],["reason","private-secret"],["evidence","repository_configuration_absent"]])await assert.rejects(harness({...data,[key as string]:value}).read());
 });
 test("current repository accepts explicit file declarations including nulls and rejects absent-file values",async()=>{

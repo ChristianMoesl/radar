@@ -51,7 +51,7 @@ Cleanup, which this adapter never calls. Full execution eligibility, runtime
 presence/lifetime and actual resource outcomes remain unknown. No apply token,
 deletion/retry consent, resource absence or safe retry follows from this check.
 
-CLI/daemon/loaded Pi must match **schema 43**, without old-peer fallback or a
+CLI/daemon/loaded Pi must match **schema 44**, without old-peer fallback or a
 persisted-format change. Pi validates the complete available/unavailable
 envelope and finite result before text/details delivery. `make install` alone
 does not update/reload separately installed Pi sources. Cleanup apply and runtime

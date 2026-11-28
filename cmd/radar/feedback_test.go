@@ -211,6 +211,10 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 			}
 			observed <- req
 			response := protocol.Response{OK: true, Diagnostics: &protocol.DiagnosticsPage{Schema: protocol.DiagnosticsVersion, Section: req.Diagnostics.Section, Evidence: "cached_daemon_state", Items: []protocol.DiagnosticItem{}, Complete: true}}
+			if req.Diagnostics.Section == "runtime_probe" {
+				count := i - 13 // Preserve finite 0/1/2 counts through the CLI facade.
+				response.Diagnostics.Items = []protocol.DiagnosticItem{{ID: "runtime", Runtime: &protocol.DiagnosticRuntime{ID: "runtime", WorkspaceID: req.Diagnostics.ParentID, OwnershipEvidence: "fresh_bounded_registration", AgentOwnerCount: &count, LeaseEvidence: "unknown_not_checked"}}}
+			}
 			if req.Diagnostics.Section == "operations" {
 				elapsed := int64(0)
 				response.Diagnostics.Items = []protocol.DiagnosticItem{{ID: req.Diagnostics.ID, Operation: &protocol.DiagnosticOperation{ID: req.Diagnostics.ID, Kind: "cleanup", Status: "partial", TimingEvidence: "native_handler_monotonic_elapsed", StartedAt: "2026-11-17T14:00:01Z", FinishedAt: "2026-11-17T14:00:00Z", ElapsedMilliseconds: &elapsed, PhaseTimingEvidence: "native_completed_phase_aggregates", PhaseTimings: []protocol.OperationPhaseTiming{{Phase: "cleanup_execution", CompletedIntervals: 1, ElapsedMilliseconds: 0}}}}}
@@ -277,6 +281,17 @@ func TestFeedbackInventoryResolvesOnlyRegisteredScopesAndChecksDaemonSchema(t *t
 			page := result["inventory"].(*protocol.DiagnosticsPage)
 			if page.Items[0].Operation.PhaseTimingEvidence != "native_completed_phase_aggregates" || len(page.Items[0].Operation.PhaseTimings) != 1 || page.Items[0].Operation.PhaseTimings[0].CompletedIntervals != 1 || page.Items[0].Operation.PhaseTimings[0].ElapsedMilliseconds != 0 || page.Items[0].Operation.TimingEvidence != "native_handler_monotonic_elapsed" || *page.Items[0].Operation.ElapsedMilliseconds != 0 || page.Items[0].Operation.FinishedAt != "2026-11-17T14:00:00Z" {
 				t.Fatal("facade lost native monotonic zero/backward-wall timing")
+			}
+		}
+		if section == "runtime_probe" {
+			page := result["inventory"].(*protocol.DiagnosticsPage)
+			view := page.Items[0].Runtime
+			if view.OwnershipEvidence != "fresh_bounded_registration" || view.AgentOwnerCount == nil || *view.AgentOwnerCount != index-13 || view.LeaseEvidence != "unknown_not_checked" {
+				t.Fatal("facade lost native registered-owner evidence")
+			}
+			raw, err := json.Marshal(result)
+			if err != nil || !strings.Contains(string(raw), fmt.Sprintf(`"agent_owner_count":%d`, index-13)) {
+				t.Fatal("facade omitted finite registered-owner wire count", err)
 			}
 		}
 		if scope == "origin" && result["origin_workspace_id"] != workspacegroup.ID(origin) {

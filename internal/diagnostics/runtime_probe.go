@@ -87,6 +87,10 @@ func Probe(ctx context.Context, store *state.Store, req protocol.DiagnosticsRequ
 	}
 	_, refs, revision := store.InspectionSnapshot()
 	items := []protocol.DiagnosticItem{}
+	var ownerCounts map[string]int
+	var ownerSnapshot [32]byte
+	var ownerErr error
+	ownersCaptured := false
 	for _, source := range []string{"sbx", "tmux"} {
 		name := selected.SandboxName
 		if source == "tmux" {
@@ -101,7 +105,14 @@ func Probe(ctx context.Context, store *state.Store, req protocol.DiagnosticsRequ
 		if req.ID != "" && req.ID != id {
 			continue
 		}
-		view := protocol.DiagnosticRuntime{ID: id, WorkspaceID: clip(selected.ID), Provider: source, Name: clip(name), IdentityComparison: "unknown_no_cached_identity", OwnershipEvidence: "unknown_not_checked", LeaseEvidence: "unknown_not_checked", Observation: protocol.DiagnosticRuntimeObservation{Presence: "unknown", State: "unknown", Problem: "unsupported"}}
+		// Reuse the complete bounded native registration predicate once for
+		// this exact workspace, never a cached task/ref join or runtime owner
+		// inference. Unknown runtime selectors trigger no ownership scan.
+		if !ownersCaptured && !previewExpired(ctx) {
+			ownersCaptured = true
+			ownerCounts, ownerSnapshot, ownerErr = agentservice.DiagnosticWorkspaceRemovalOwners(ctx, []string{selected.Path})
+		}
+		view := protocol.DiagnosticRuntime{ID: id, WorkspaceID: clip(selected.ID), Provider: source, Name: clip(name), IdentityComparison: "unknown_no_cached_identity", OwnershipEvidence: "unavailable", LeaseEvidence: "unknown_not_checked", Observation: protocol.DiagnosticRuntimeObservation{Presence: "unknown", State: "unknown", Problem: "unsupported"}}
 		expected := map[string]bool{}
 		for _, ref := range refs {
 			if !ref.Active || ref.Snapshot.Source != source || !recordInWorkspace([]state.SourceRefRecord{ref}, selected.Path) {
@@ -163,10 +174,20 @@ func Probe(ctx context.Context, store *state.Store, req protocol.DiagnosticsRequ
 	if string(registrationSnapshot) != string(after) {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("runtime registration changed; probe again")
 	}
+	if ownersCaptured && ownerErr == nil && !previewExpired(ctx) {
+		_, after, err := agentservice.DiagnosticWorkspaceRemovalOwners(ctx, []string{selected.Path})
+		if err == nil && after == ownerSnapshot && !previewExpired(ctx) {
+			for _, item := range items {
+				count := ownerCounts[selected.Path]
+				item.Runtime.OwnershipEvidence = "fresh_bounded_registration"
+				item.Runtime.AgentOwnerCount = &count
+			}
+		}
+	}
 	if store.Revision() != revision {
 		return protocol.DiagnosticsPage{}, fmt.Errorf("diagnostic snapshot changed; probe again")
 	}
-	// A later provider or final registration read can observe cancellation after
+	// A later provider, registration revalidation or bounded owner scan can observe cancellation after
 	// earlier rows were captured. Withhold the ENTIRE selected result, not just
 	// the current/off-page row. Also check the absolute deadline: its timer may
 	// not have notified Err yet. Do this before our own deferred cancellation.
@@ -174,6 +195,7 @@ func Probe(ctx context.Context, store *state.Store, req protocol.DiagnosticsRequ
 		for _, item := range items {
 			item.Runtime.Observation = protocol.DiagnosticRuntimeObservation{Presence: "unknown", State: "unknown", Problem: "cancelled_or_timed_out"}
 			item.Runtime.IdentityComparison = "not_observed"
+			item.Runtime.OwnershipEvidence, item.Runtime.AgentOwnerCount = "unavailable", nil
 		}
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })

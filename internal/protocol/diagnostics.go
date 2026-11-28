@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const DiagnosticsVersion = 43
+const DiagnosticsVersion = 44
 const DiagnosticChildLimit = 16
 
 // DiagnosticText bounds non-identity text in allowlisted diagnostic projections.
@@ -352,6 +352,7 @@ type DiagnosticRuntime struct {
 	CachedIdentityCount int                          `json:"cached_identity_count"`
 	IdentityComparison  string                       `json:"identity_comparison"`
 	OwnershipEvidence   string                       `json:"ownership_evidence"`
+	AgentOwnerCount     *int                         `json:"agent_owner_count,omitempty"`
 	LeaseEvidence       string                       `json:"lease_evidence"`
 }
 

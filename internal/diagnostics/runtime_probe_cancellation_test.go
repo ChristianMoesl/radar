@@ -97,7 +97,7 @@ func TestRuntimeProbeLateCancellationWithholdsWholeSelectedPage(t *testing.T) {
 			}
 			for _, item := range page.Items {
 				view := item.Runtime
-				if view.OwnershipEvidence != "unknown_not_checked" || view.LeaseEvidence != "unknown_not_checked" {
+				if view.LeaseEvidence != "unknown_not_checked" || (kind == "allowed" && (view.OwnershipEvidence != "fresh_bounded_registration" || view.AgentOwnerCount == nil || *view.AgentOwnerCount != 0)) || (kind != "allowed" && (view.OwnershipEvidence != "unavailable" || view.AgentOwnerCount != nil)) {
 					t.Fatal("cancellation repair invented ownership/lease evidence", view)
 				}
 				if kind == "allowed" {

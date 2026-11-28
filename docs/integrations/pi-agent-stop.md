@@ -4,7 +4,7 @@
 
 ## Exact CLI/Pi interruption consent
 
-Diagnostics schema 43 exposes `radar_diagnostics` section `agent_stop` with exact
+Diagnostics schema 44 exposes `radar_diagnostics` section `agent_stop` with exact
 retained task `parent_id` and registered `agent_id`. Overview advertises
 `agent_stop_daemon_client_transport: true`, `agent_stop_previews: true` and
 `agent_stop_apply: true`; broad `runtime_controls` remains false. Start, restart,
@@ -100,7 +100,7 @@ restart, remove and sandbox stop are not part of this operation.
 
 ## Independent bounded native stop observations
 
-Schema 43 requires `observation` independently of handler status. Preview uses
+Schema 44 requires `observation` independently of handler status. Preview uses
 `unknown_not_observed`, `registration: unknown`, `runner: unknown`, without a
 timestamp. Apply may expose `bounded_native_stop_reads` with canonical UTC
 `observed_at` bounded to this execution and the original native expiry:

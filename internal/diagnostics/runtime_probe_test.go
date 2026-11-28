@@ -77,7 +77,7 @@ func TestRuntimeProbeExactScopeIdentityPrivacyPaginationAndNoMutation(t *testing
 	}
 	for _, item := range append(first.Items, page.Items...) {
 		v := item.Runtime
-		if v == nil || v.ID != item.ID || v.OwnershipEvidence != "unknown_not_checked" || v.LeaseEvidence != "unknown_not_checked" || v.CachedIdentityCount != 1 || !strings.HasPrefix(v.Observation.ID, "runtime-id:") {
+		if v == nil || v.ID != item.ID || v.OwnershipEvidence != "fresh_bounded_registration" || v.AgentOwnerCount == nil || *v.AgentOwnerCount != 0 || v.LeaseEvidence != "unknown_not_checked" || v.CachedIdentityCount != 1 || !strings.HasPrefix(v.Observation.ID, "runtime-id:") {
 			t.Fatalf("bad evidence=%+v", v)
 		}
 		if v.Provider == "sbx" && (v.IdentityComparison != "differs_from_cached_identity" || len(v.Name) > 520 || v.Observation.State != "unknown") {
