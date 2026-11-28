@@ -239,11 +239,18 @@ func (m *Manager) status(ctx context.Context, reg Registration) protocol.AgentSt
 }
 
 func (m *Manager) start(ctx context.Context, reg Registration, request protocol.AgentRequest) error {
+	registration, err := captureStartRegistration(ctx, reg)
+	if err != nil {
+		return err
+	}
 	persistDesired := func(ctx context.Context) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		_, err := m.setDesired(reg, reg.Desired)
+		if !registration.current(ctx, reg) {
+			return startRegistrationUnavailable()
+		}
+		_, err := m.setDesired(reg, true)
 		return err
 	}
 	// Runner work can hold a workspace lease. Stop it before repairing its runtime,
@@ -612,20 +619,19 @@ func (m *Manager) Handle(ctx context.Context, request protocol.AgentRequest) (js
 			if err != nil {
 				return nil, err
 			}
-		} else {
-			// Keep start intent in memory until native preparation accepts it.
-			// Persisting it here would let supervision retry a refused request.
-			reg.Desired = true
 		}
 		if request.Operation != "start" {
 			if err := stop(ctx, reg); err != nil {
 				return nil, err
 			}
 		}
-		if reg.Desired {
+		if request.Operation != "stop" {
+			// Keep the original registration intact for native startup admission.
+			// Desired-running intent is persisted only after preparation accepts it.
 			if err := m.start(ctx, reg, request); err != nil {
 				return nil, err
 			}
+			reg.Desired = true
 		}
 		return encode(m.status(ctx, reg))
 	case "emit", "interact", "conversation":

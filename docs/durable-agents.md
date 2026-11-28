@@ -221,6 +221,19 @@ or retained preview-to-launch authority. Existing desired-running registrations
 retain their prior supervision intent, and accepted stop still persists stopped
 intent before shutdown rather than restoring it on failure.
 
+Native startup also captures the original full agent registration before workspace
+or runner inspection, then rechecks its exact raw-byte hash, file identity and
+immediate root/instance identities before desired-state persistence. Definition,
+desire, binding, private-extension, same-byte replacement and directory drift
+refuse without overwriting concurrent changes or clearing retry evidence. The
+existing bounded no-follow/nonblocking reader refuses unsafe or unavailable
+registration evidence; unrelated directory writes remain allowed. Handle keeps
+the original decoded registration unchanged until startup accepts desired-running
+intent, and supervision uses the same guard. This is an in-call, point-in-time
+check, not an atomic filesystem compare-and-swap, a guard after our own accepted
+write, or retained preview authority across requests. Accepted resource effects
+are not rolled back; stop persistence and storage formats are unchanged.
+
 Start/restart and desired-running supervision prepare the owned workspace before
 launching the runner: stopped sandboxes resume in place, missing sandboxes are
 recreated through ordinary reconciliation, and existing members, mounts and ports
