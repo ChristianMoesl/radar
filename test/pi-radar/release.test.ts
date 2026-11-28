@@ -53,31 +53,53 @@ for (const version of ["01.2.3", "1.02.3", "1.2.03", "1.2", "1.2.3-", "1.2.3-rc.
 }
 
 test("local release rejects malformed versions before fetching, tagging or pushing", async t => {
-  const { root } = await fixture(t, "0.1.0");
-  await writeFile(join(root, "scripts", "release.sh"), await readFile(join(repository, "scripts", "release.sh")));
-  const bin = join(root, "bin");
-  await mkdir(bin);
-  await writeFile(join(bin, "git"), `#!/bin/sh
-if [ "$*" = "rev-parse --show-toplevel" ]; then
-  printf '%s\\n' "$FIXTURE_ROOT"
-else
-  printf '%s\\n' "$*" >> "$FIXTURE_ROOT/git-calls"
-  exit 1
-fi
-`, { mode: 0o755 });
-  await writeFile(join(bin, "pnpm"), `#!/bin/sh
-[ "$1" = check:release ] || exit 1
-exec node "$FIXTURE_ROOT/scripts/release-version.mjs" check "$2"
-`, { mode: 0o755 });
-  await assert.rejects(exec("bash", [join(root, "scripts", "release.sh"), "v0.2.0-01"], {
-    cwd: root,
-    env: { PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`, FIXTURE_ROOT: root },
-  }), error => {
-    assert.match(String(error), /release version must be vX.Y.Z/);
-    return true;
-  });
-  await assert.rejects(readFile(join(root, "git-calls")), { code: "ENOENT" });
+  for (const tag of ["v0.2.0-01", "v01.2.3", "v1.02.3", "v1.2.03", "v1.2.3-rc..1"]) {
+    await t.test(tag, async t => {
+      const h = await releaseInputFixture(t);
+      await assert.rejects(h.run(tag), error => {
+        assert.match(String(error), /release version must be vX.Y.Z/);
+        return true;
+      });
+      // Trace the REAL Git executable, not an unrecorded rev-parse exception
+      // in a mock. Invalid input must not enter even repository discovery.
+      await assert.rejects(readFile(h.trace), { code: "ENOENT" });
+      assert.equal(await readFile(join(h.root, "package.json"), "utf8"), JSON.stringify({ version: "0.1.0" }));
+    });
+  }
 });
+
+async function releaseInputFixture(t: Parameters<typeof fixture>[0]) {
+  const { root } = await fixture(t, "0.1.0");
+  const script = join(root, "scripts", "release.sh");
+  await writeFile(script, await readFile(join(repository, "scripts", "release.sh")));
+  const trace = join(root, "git-trace");
+  return {
+    root, trace,
+    run: (tag: string) => exec("bash", [script, tag], {
+      cwd: root,
+      env: {
+        PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, HOME: root,
+        GIT_TRACE: trace, GIT_CEILING_DIRECTORIES: dirname(root),
+        GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_TERMINAL_PROMPT: "0",
+      },
+    }),
+  };
+}
+
+for (const tag of ["v0.0.0", "v1.2.3", "v1.2.3-rc.1", "v1.2.3-0.alpha-1"]) {
+  test(`valid release input ${tag} reaches read-only repository discovery`, async t => {
+    const h = await releaseInputFixture(t);
+    // The fixture has NO repository, credentials or remote: a valid version
+    // can only reach discovery, never a real release/tag/push boundary.
+    await assert.rejects(h.run(tag), error => {
+      assert.match(String(error), /not a git repository/);
+      assert.doesNotMatch(String(error), /release version must/);
+      return true;
+    });
+    assert.match(await readFile(h.trace, "utf8"), /git rev-parse --show-toplevel/);
+    assert.doesNotMatch(await readFile(h.trace, "utf8"), /git (fetch|tag|push|commit)/);
+  });
+}
 
 test("CI owns native archives and gates publication on authentication and platform validation", async () => {
   const workflow = await readFile(join(repository, ".github", "workflows", "release.yml"), "utf8");

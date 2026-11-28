@@ -48,15 +48,13 @@ if [[ -z "$version" ]]; then
   exit 2
 fi
 
-if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-  echo "release version must look like vX.Y.Z, got: $version" >&2
-  exit 2
-fi
+# Use the shared strict grammar before even discovering a repository. A loose
+# shell check lets malformed prereleases reach Git or hide behind a Git error.
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+validate node "$script_dir/release-version.mjs" validate "$version"
 
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
-
-validate node scripts/release-version.mjs validate "$version"
 
 branch="$(git branch --show-current)"
 if [[ "$branch" != "main" ]]; then

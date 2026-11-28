@@ -128,7 +128,12 @@ later without replacing the release contract.
   Normal development tools (Bash, Make, Go, Node.js and the pinned pnpm), an
   authenticated `gh` session and working Git tag signing are required. Apple SDK
   and signing tools are needed only on CI's macOS runner, not the initiating host.
-- The command validates the target version, fetches refs, rejects used tags,
+- The command validates the target version with the shared strict version
+  validator before even discovering the Git repository. Malformed versions
+  (including leading-zero numeric components or prerelease identifiers) fail
+  without Git access or version-file changes, including outside a checkout.
+  Valid input still requires the normal clean-main and publication preflights.
+  It then fetches refs, rejects used tags,
   and verifies notifier history/ref identity **before modifying files**. Local
   `main` may be ahead of `origin/main`; behind/diverged branches and staged,
   unstaged or untracked changes are rejected. It never merges or resets work.

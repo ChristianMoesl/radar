@@ -164,7 +164,11 @@ for (const state of ["dirty", "staged", "untracked", "dirty-version", "wrong-bra
     await assert.rejects(h.run(state, state === "invalid" ? "v0.2.0-01" : "v0.2.0"));
     assert.equal(await readFile(join(h.repo, "package.json"), "utf8"), before);
     assert.equal(await h.git("rev-parse", "HEAD"), head);
-    assert.doesNotMatch(await h.calls(), /^git (commit|tag|push) /m);
+    if (state === "invalid") {
+      await assert.rejects(h.calls(), { code: "ENOENT" });
+    } else {
+      assert.doesNotMatch(await h.calls(), /^git (commit|tag|push) /m);
+    }
   });
 }
 
